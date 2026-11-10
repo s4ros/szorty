@@ -1,0 +1,65 @@
+{{define "start"}}<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+{{template "header" .}}
+<main>
+{{end}}
+
+{{define "end"}}
+</main>
+</body>
+</html>
+{{end}}
+
+{{define "header"}}
+<header>
+<p class="mark"><a href="/">Szort</a></p>
+{{if .Email}}
+<p class="who">{{.Email}}</p>
+{{if .Owner}}
+<nav>
+<a href="/wszystkie">Wszystkie</a>
+<a href="/ustawienia">Ustawienia</a>
+</nav>
+{{end}}
+<form method="post" action="/logout">
+<button type="submit">Wyloguj</button>
+</form>
+{{else}}
+<p><a href="/auth/google">Zaloguj przez Google</a></p>
+{{end}}
+</header>
+{{end}}
+
+{{define "linklist"}}
+{{if .Empty}}<p>{{.Empty}}</p>{{end}}
+{{if .Links}}
+<ul>
+{{range .Links}}
+<li>
+<p><a href="/{{.Code}}">{{.ShortURL}}</a></p>
+<p class="target">{{.Target}}</p>
+<p>{{.Created}}</p>
+<p>dni: <span class="days">{{.DaysLeft}}</span></p>
+{{if .Author}}<p>{{.Author}}</p>{{end}}
+<form method="post" action="/links/{{.Code}}/usun">
+<input type="hidden" name="next" value="{{.Next}}">
+<button type="submit">Usuń</button>
+</form>
+</li>
+{{end}}
+</ul>
+{{end}}
+{{if or .Older .Newer}}
+<p class="pager">
+{{if .Newer}}<a href="{{.Newer}}">Nowsze</a>{{end}}
+{{if .Older}}<a href="{{.Older}}">Starsze</a>{{end}}
+</p>
+{{end}}
+{{end}}

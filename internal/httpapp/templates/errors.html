@@ -1,0 +1,18 @@
+{{define "dead"}}
+{{template "start" .}}
+<p>Ten skrót nie działa.</p>
+<p><a href="/">Strona główna</a></p>
+{{template "end" .}}
+{{end}}
+
+{{define "unknown"}}
+{{template "start" .}}
+<p>Nie ma takiej strony.</p>
+{{template "end" .}}
+{{end}}
+
+{{define "message"}}
+{{template "start" .}}
+<p>{{.Error}}</p>
+{{template "end" .}}
+{{end}}

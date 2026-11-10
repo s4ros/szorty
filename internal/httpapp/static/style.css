@@ -1,0 +1,54 @@
+body {
+  margin: 0 auto;
+  max-width: 36rem;
+  padding: 1.25rem;
+  font-family: sans-serif;
+  line-height: 1.45;
+}
+
+header,
+main,
+nav,
+form,
+ul,
+li,
+p {
+  display: block;
+}
+
+nav a,
+.pager a {
+  margin-right: 1rem;
+}
+
+input,
+button {
+  font: inherit;
+}
+
+input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.25rem;
+}
+
+button {
+  margin-top: 0.5rem;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+}
+
+li {
+  margin: 1rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid;
+}
+
+a,
+.target {
+  overflow-wrap: anywhere;
+}

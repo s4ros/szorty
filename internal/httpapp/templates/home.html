@@ -1,0 +1,15 @@
+{{define "home"}}
+{{template "start" .}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if .Email}}
+{{if .NewLink}}
+<p><label>Krótki adres <input id="nowy" readonly value="{{.NewLink}}"></label></p>
+{{end}}
+<form method="post" action="/links">
+<p><label>Długi adres <input name="url" type="text" maxlength="2048" autocomplete="off"></label></p>
+<p><button type="submit">Szortuj to!</button></p>
+</form>
+{{template "linklist" .}}
+{{end}}
+{{template "end" .}}
+{{end}}
