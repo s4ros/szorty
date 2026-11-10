@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
-<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/style.css?v=4">
 </head>
 <body>
 {{template "header" .}}
@@ -13,6 +13,7 @@
 
 {{define "end"}}
 </main>
+<script src="/copy.js"></script>
 </body>
 </html>
 {{end}}
@@ -45,8 +46,8 @@
 <ul class="rack">
 {{range .Links}}
 <li class="tag">
-<p><a href="/{{.Code}}">{{.ShortURL}}</a></p>
-<p class="target">{{.Target}}</p>
+<p><a class="short" href="/{{.Code}}">{{.ShortURL}}</a></p>
+<p class="origin"><span class="target" title="{{.Target}}">{{.Target}}</span><button type="button" data-copy="{{.Target}}">Kopiuj</button></p>
 <p>{{.Created}}</p>
 <p>dni: <span class="days">{{.DaysLeft}}</span></p>
 {{if .Author}}<p>{{.Author}}</p>{{end}}

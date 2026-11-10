@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	csp      = "default-src 'self'; style-src 'self'; form-action 'self'; base-uri 'self'; frame-ancestors 'none'"
+	csp      = "default-src 'self'; script-src 'self'; style-src 'self'; form-action 'self'; base-uri 'self'; frame-ancestors 'none'"
 	pageSize = 200
 
 	msgBadURL       = "To nie jest publiczny adres http albo https."
@@ -59,6 +59,7 @@ type App struct {
 	exchanger Exchanger
 	tmpl      *template.Template
 	css       []byte
+	js        []byte
 	oauth     *oauth2.Config
 }
 
@@ -105,6 +106,7 @@ var routes = []route{
 	{http.MethodPost, "/logout", (*App).logout},
 	{http.MethodGet, "/health", (*App).health},
 	{http.MethodGet, "/style.css", (*App).style},
+	{http.MethodGet, "/copy.js", (*App).copyJS},
 	{http.MethodGet, "/font-display.woff2", (*App).font},
 	{http.MethodGet, "/font-body.woff2", (*App).font},
 	{http.MethodGet, "/font-mono.woff2", (*App).font},
@@ -120,6 +122,10 @@ func New(cfg config.Config, st *store.Store, clk clock.Clock, exchanger Exchange
 	if err != nil {
 		panic(err)
 	}
+	js, err := assets.ReadFile("static/copy.js")
+	if err != nil {
+		panic(err)
+	}
 	return &App{
 		cfg:       cfg,
 		store:     st,
@@ -128,6 +134,7 @@ func New(cfg config.Config, st *store.Store, clk clock.Clock, exchanger Exchange
 		exchanger: exchanger,
 		tmpl:      tmpl,
 		css:       css,
+		js:        js,
 		oauth:     oauthConfig(cfg),
 	}
 }

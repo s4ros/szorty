@@ -416,11 +416,13 @@ button {
   margin: 1.5rem 0 0;
   padding: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
 }
 
 .tag {
   position: relative;
+  min-width: 0;
   margin: 0;
   padding: 0.85rem 0.95rem 0.85rem 1.6rem;
   background: var(--ticket);
@@ -445,20 +447,46 @@ button {
   margin: 0.2rem 0;
 }
 
-.tag a {
+.tag a.short {
   font-family: var(--tag);
-  font-size: 0.92rem;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.origin {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 .target {
-  overflow-wrap: anywhere;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--ink) 48%, var(--ticket));
+  font-size: 0.85rem;
+}
+
+.origin button {
+  flex: none;
+  font-family: var(--display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: var(--vat);
+  background: transparent;
+  border: 1px solid var(--vat);
+  padding: 0.2rem 0.45rem;
 }
 
 .tag form {
   margin-top: 0.45rem;
 }
 
-.tag button {
+.tag form button {
   font-family: var(--display);
   letter-spacing: 0.06em;
   text-transform: uppercase;

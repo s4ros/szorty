@@ -278,6 +278,12 @@ func (a *App) style(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(a.css)
 }
 
+func (a *App) copyJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(a.js)
+}
+
 func (a *App) font(w http.ResponseWriter, r *http.Request) {
 	name := map[string]string{
 		"/font-display.woff2": "static/display.woff2",

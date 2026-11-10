@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	wantCSP = "default-src 'self'; style-src 'self'; form-action 'self'; base-uri 'self'; frame-ancestors 'none'"
+	wantCSP = "default-src 'self'; script-src 'self'; style-src 'self'; form-action 'self'; base-uri 'self'; frame-ancestors 'none'"
 
 	wantBadURL       = "To nie jest publiczny adres http albo https."
 	wantRate         = "Za dużo skrótów w tej godzinie. Limit to 1."
@@ -298,6 +298,7 @@ func TestRegisteredRoutesAreNotCodes(t *testing.T) {
 		"POST /logout",
 		"GET /health",
 		"GET /style.css",
+		"GET /copy.js",
 	} {
 		if !seen[want] {
 			t.Errorf("missing registered route %s", want)
@@ -812,6 +813,47 @@ func TestExpiredSessionIsAnonymous(t *testing.T) {
 	}
 }
 
+func TestLinkCardMutesOriginal(t *testing.T) {
+	f := newFixture(t)
+	owner := f.session(t, "owner-sub", ownerEmail)
+	const target = "https://example.com/very/long/original"
+	code := f.mustCreate(t, "owner-sub", ownerEmail, target, f.clk.Now())
+	short := publicBase + "/" + code
+
+	for _, path := range []string{"/", "/wszystkie"} {
+		rec := get(f.h(), path, owner)
+		status(t, rec, http.StatusOK)
+		body := rec.Body.String()
+		mustContain(t, body, `<a class="short" href="/`+code+`">`+short+`</a>`)
+		mustContain(t, body, `<span class="target" title="`+target+`">`+target+`</span>`)
+		mustContain(t, body, `<button type="button" data-copy="`+target+`">Kopiuj</button>`)
+	}
+}
+
+func TestCopyJS(t *testing.T) {
+	f := newFixture(t)
+	rec := get(f.h(), "/copy.js")
+	status(t, rec, http.StatusOK)
+	if ct := rec.Header().Get("Content-Type"); ct != "text/javascript; charset=utf-8" {
+		t.Fatalf("content-type = %q", ct)
+	}
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("missing nosniff")
+	}
+	if !bytes.Equal(rec.Body.Bytes(), f.app.js) {
+		t.Fatal("js body is not the embedded file")
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"data-copy", "navigator.clipboard.writeText", "Skopiowane"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("copy.js missing %q", want)
+		}
+	}
+	if strings.Contains(body, "http://") || strings.Contains(body, "https://") {
+		t.Fatal("copy.js references an external URL")
+	}
+}
+
 func TestStyleCSS(t *testing.T) {
 	f := newFixture(t)
 	rec := get(f.h(), "/style.css")
@@ -828,8 +870,10 @@ func TestStyleCSS(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "http://") || strings.Contains(rec.Body.String(), "https://") {
 		t.Fatal("css references an external URL")
 	}
+	mustContain(t, rec.Body.String(), "grid-template-columns: minmax(0, 1fr)")
+	mustContain(t, rec.Body.String(), "text-overflow: ellipsis")
 	home := get(f.h(), "/")
-	mustContain(t, home.Body.String(), `href="/style.css?v=3"`)
+	mustContain(t, home.Body.String(), `href="/style.css?v=4"`)
 	mustContain(t, home.Body.String(), "<title>Szorty</title>")
 	mustContain(t, home.Body.String(), `>Szorty</a>`)
 }
@@ -1029,8 +1073,10 @@ func assertHTML(t *testing.T, rec *httptest.ResponseRecorder) {
 	if got := rec.Header().Get("Content-Security-Policy"); got != wantCSP {
 		t.Fatalf("csp = %q", got)
 	}
-	if strings.Contains(strings.ToLower(rec.Body.String()), "<script") {
-		t.Fatal("response contains a script tag")
+	body := rec.Body.String()
+	lower := strings.ToLower(body)
+	if strings.Count(lower, "<script") != 1 || !strings.Contains(body, `<script src="/copy.js"></script>`) {
+		t.Fatal("response script is not only /copy.js")
 	}
 }
 
