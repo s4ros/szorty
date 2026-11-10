@@ -1,15 +1,15 @@
-name: szort
+name: szorty
 
 services:
-  szort:
+  szorty:
     build: .
-    image: szort:1.0.0
+    image: szorty:1.0.0
     restart: always
     env_file: .env
     environment:
       PUBLIC_BASE_URL: https://szorty.infinigy.pl
       LISTEN_ADDR: ":8080"
-      DB_PATH: /data/szort.db
+      DB_PATH: /data/szorty.db
     volumes:
       - ./data:/data
     security_opt:
@@ -22,11 +22,11 @@ services:
       com.centurylinklabs.watchtower.enable: "false"
       traefik.enable: "true"
       traefik.docker.network: traefik
-      traefik.http.services.szort.loadbalancer.server.port: "8080"
-      traefik.http.routers.szort.rule: "Host(`szorty.infinigy.pl`)"
-      traefik.http.routers.szort.entrypoints: websecure
-      traefik.http.routers.szort.tls: "true"
-      traefik.http.routers.szort.tls.certresolver: myresolver
+      traefik.http.services.szorty.loadbalancer.server.port: "8080"
+      traefik.http.routers.szorty.rule: "Host(`szorty.infinigy.pl`)"
+      traefik.http.routers.szorty.entrypoints: websecure
+      traefik.http.routers.szorty.tls: "true"
+      traefik.http.routers.szorty.tls.certresolver: myresolver
 
 networks:
   traefik:

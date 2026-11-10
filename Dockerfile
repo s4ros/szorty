@@ -6,12 +6,12 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /szort ./cmd/szort
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /szorty ./cmd/szorty
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=build /szort /szort
+COPY --from=build /szorty /szorty
 
 USER 65532:65532
 
-ENTRYPOINT ["/szort"]
+ENTRYPOINT ["/szorty"]

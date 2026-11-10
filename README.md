@@ -19,7 +19,7 @@ docker compose up -d --build
 
 Do not run `docker compose down -v`. Deleting `./data` deletes the links.
 
-A database copy is `./data/szort.db` together with the `-wal` and `-shm` files, taken while the container is stopped.
+A database copy is `./data/szorty.db` together with the `-wal` and `-shm` files, taken while the container is stopped.
 
 ## Dev machine
 

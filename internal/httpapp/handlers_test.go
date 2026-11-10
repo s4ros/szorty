@@ -531,7 +531,7 @@ func TestOAuthFake(t *testing.T) {
 	f := newFixture(t)
 	start := get(f.h(), "/auth/google")
 	status(t, start, http.StatusFound)
-	state := cookieNamed(t, start, "szort_oauth_state")
+	state := cookieNamed(t, start, "szorty_oauth_state")
 	if state == nil || state.Value == "" {
 		t.Fatal("missing state cookie")
 	}
@@ -573,7 +573,7 @@ func TestOAuthFake(t *testing.T) {
 	status(t, bad, http.StatusBadRequest)
 	assertHTML(t, bad)
 	mustContain(t, bad.Body.String(), wantOAuth)
-	if cookieNamed(t, bad, "szort_session") != nil {
+	if cookieNamed(t, bad, "szorty_session") != nil {
 		t.Fatal("bad state set a session")
 	}
 	if f.fx.calls != 0 {
@@ -587,7 +587,7 @@ func TestOAuthFake(t *testing.T) {
 	unverified := get(f.h(), "/auth/callback?state="+url.QueryEscape(state.Value)+"&code=abc", state)
 	status(t, unverified, http.StatusBadRequest)
 	mustContain(t, unverified.Body.String(), wantOAuth)
-	if cookieNamed(t, unverified, "szort_session") != nil {
+	if cookieNamed(t, unverified, "szorty_session") != nil {
 		t.Fatal("unverified email set a session")
 	}
 	if f.fx.calls != 1 {
@@ -597,14 +597,14 @@ func TestOAuthFake(t *testing.T) {
 	f.fx.id = Identity{Sub: "", Email: "person@example.com", EmailVerified: true}
 	noSub := get(f.h(), "/auth/callback?state="+url.QueryEscape(state.Value)+"&code=abc", state)
 	status(t, noSub, http.StatusBadRequest)
-	if cookieNamed(t, noSub, "szort_session") != nil {
+	if cookieNamed(t, noSub, "szorty_session") != nil {
 		t.Fatal("empty sub set a session")
 	}
 
 	f.fx.id = Identity{Sub: "sub-1", Email: "", EmailVerified: true}
 	noEmail := get(f.h(), "/auth/callback?state="+url.QueryEscape(state.Value)+"&code=abc", state)
 	status(t, noEmail, http.StatusBadRequest)
-	if cookieNamed(t, noEmail, "szort_session") != nil {
+	if cookieNamed(t, noEmail, "szorty_session") != nil {
 		t.Fatal("empty email set a session")
 	}
 
@@ -612,7 +612,7 @@ func TestOAuthFake(t *testing.T) {
 	f.fx.id = Identity{Sub: "sub-1", Email: "person@example.com", EmailVerified: true}
 	failed := get(f.h(), "/auth/callback?state="+url.QueryEscape(state.Value)+"&code=abc", state)
 	status(t, failed, http.StatusBadRequest)
-	if cookieNamed(t, failed, "szort_session") != nil {
+	if cookieNamed(t, failed, "szorty_session") != nil {
 		t.Fatal("exchange error set a session")
 	}
 	f.fx.err = nil
@@ -627,7 +627,7 @@ func TestOAuthFake(t *testing.T) {
 	if loc := ok.Header().Get("Location"); loc != "/" {
 		t.Fatalf("callback location = %q", loc)
 	}
-	sess := cookieNamed(t, ok, "szort_session")
+	sess := cookieNamed(t, ok, "szorty_session")
 	if sess == nil || sess.Value == "" {
 		t.Fatal("verified identity did not set a session")
 	}
@@ -779,7 +779,7 @@ func TestLogout(t *testing.T) {
 	if loc := rec.Header().Get("Location"); loc != "/" {
 		t.Fatalf("location = %q", loc)
 	}
-	cleared := cookieNamed(t, rec, "szort_session")
+	cleared := cookieNamed(t, rec, "szorty_session")
 	if cleared == nil || cleared.MaxAge >= 0 {
 		t.Fatal("session cookie was not cleared")
 	}
@@ -798,7 +798,7 @@ func TestExpiredSessionIsAnonymous(t *testing.T) {
 		Email: "user@example.com",
 		Exp:   time.Now().Add(-time.Hour),
 	})
-	c := cookieNamed(t, rec, "szort_session")
+	c := cookieNamed(t, rec, "szorty_session")
 	if c == nil {
 		t.Fatal("missing cookie")
 	}
@@ -829,7 +829,7 @@ func TestStyleCSS(t *testing.T) {
 		t.Fatal("css references an external URL")
 	}
 	home := get(f.h(), "/")
-	mustContain(t, home.Body.String(), `href="/style.css?v=2"`)
+	mustContain(t, home.Body.String(), `href="/style.css?v=3"`)
 	mustContain(t, home.Body.String(), "<title>Szorty</title>")
 	mustContain(t, home.Body.String(), `>Szorty</a>`)
 }
@@ -867,7 +867,7 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "szort.db"))
+	st, err := store.Open(filepath.Join(t.TempDir(), "szorty.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -898,7 +898,7 @@ func (f *fixture) session(t *testing.T, sub, email string) *http.Cookie {
 		Email: email,
 		Exp:   time.Now().Add(14 * 24 * time.Hour),
 	})
-	c := cookieNamed(t, rec, "szort_session")
+	c := cookieNamed(t, rec, "szorty_session")
 	if c == nil || c.Value == "" {
 		t.Fatal("missing session cookie")
 	}

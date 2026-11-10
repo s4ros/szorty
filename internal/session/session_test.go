@@ -67,7 +67,7 @@ func TestSessionRoundTrip(t *testing.T) {
 	}
 	m := NewManager(secret, "owner@example.com", "https://szorty.infinigy.pl")
 	c := setCookie(t, func(w http.ResponseWriter) { m.Set(w, user) })
-	assertCookieFlags(t, c, "szort_session", 14*24*60*60, true)
+	assertCookieFlags(t, c, "szorty_session", 14*24*60*60, true)
 
 	reader := NewManager(append([]byte(nil), secret...), "owner@example.com", "https://szorty.infinigy.pl")
 	got, ok := reader.FromRequest(reqWith(c))
@@ -99,7 +99,7 @@ func TestSessionTamper(t *testing.T) {
 		t.Fatal("FromRequest accepted a cookie signed with a different secret")
 	}
 
-	bogus := &http.Cookie{Name: "szort_session", Value: "not-a-signed-cookie"}
+	bogus := &http.Cookie{Name: "szorty_session", Value: "not-a-signed-cookie"}
 	if _, ok := m.FromRequest(reqWith(bogus)); ok {
 		t.Fatal("FromRequest accepted an unsigned cookie")
 	}
@@ -145,7 +145,7 @@ func TestStateCookie(t *testing.T) {
 	m := NewManager(testSecret(), "owner@example.com", "https://szorty.infinigy.pl")
 	const state = "oauth-state-token"
 	c := setCookie(t, func(w http.ResponseWriter) { m.SetState(w, state) })
-	assertCookieFlags(t, c, "szort_oauth_state", 10*60, true)
+	assertCookieFlags(t, c, "szorty_oauth_state", 10*60, true)
 	if c.Value != state {
 		t.Fatalf("state cookie value = %q, want %q", c.Value, state)
 	}
@@ -183,9 +183,9 @@ func TestSecureFollowsBaseURL(t *testing.T) {
 		t.Run(tt.base, func(t *testing.T) {
 			m := NewManager(testSecret(), "owner@example.com", tt.base)
 			session := setCookie(t, func(w http.ResponseWriter) { m.Set(w, user) })
-			assertCookieFlags(t, session, "szort_session", 14*24*60*60, tt.secure)
+			assertCookieFlags(t, session, "szorty_session", 14*24*60*60, tt.secure)
 			state := setCookie(t, func(w http.ResponseWriter) { m.SetState(w, "state") })
-			assertCookieFlags(t, state, "szort_oauth_state", 10*60, tt.secure)
+			assertCookieFlags(t, state, "szorty_oauth_state", 10*60, tt.secure)
 		})
 	}
 }
@@ -202,8 +202,8 @@ func TestClear(t *testing.T) {
 		t.Run(tt.base, func(t *testing.T) {
 			m := NewManager(testSecret(), "owner@example.com", tt.base)
 			c := setCookie(t, m.Clear)
-			if c.Name != "szort_session" {
-				t.Fatalf("name = %q, want szort_session", c.Name)
+			if c.Name != "szorty_session" {
+				t.Fatalf("name = %q, want szorty_session", c.Name)
 			}
 			if c.Value != "" {
 				t.Fatalf("value = %q, want empty", c.Value)

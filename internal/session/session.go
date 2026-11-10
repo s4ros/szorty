@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	sessionCookie = "szort_session"
-	stateCookie   = "szort_oauth_state"
+	sessionCookie = "szorty_session"
+	stateCookie   = "szorty_oauth_state"
 
 	sessionLifetime = 14 * 24 * time.Hour
 	stateLifetime   = 10 * time.Minute
@@ -25,7 +25,7 @@ type User struct {
 	Exp        time.Time
 }
 
-// Manager signs szort_session and writes the OAuth state cookie.
+// Manager signs szorty_session and writes the OAuth state cookie.
 // Secure is set when publicBaseURL uses https.
 type Manager struct {
 	secret     []byte
@@ -50,7 +50,7 @@ func NewManager(secret []byte, ownerEmail, publicBaseURL string) *Manager {
 	}
 }
 
-// Set writes szort_session for 14 days. Exp in the payload is the caller's.
+// Set writes szorty_session for 14 days. Exp in the payload is the caller's.
 func (m *Manager) Set(w http.ResponseWriter, u User) {
 	token, err := m.seal(payload{Sub: u.Sub, Email: u.Email, Exp: u.Exp})
 	if err != nil {
@@ -59,7 +59,7 @@ func (m *Manager) Set(w http.ResponseWriter, u User) {
 	http.SetCookie(w, m.cookie(sessionCookie, token, sessionLifetime))
 }
 
-// Clear expires szort_session.
+// Clear expires szorty_session.
 func (m *Manager) Clear(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
@@ -73,7 +73,7 @@ func (m *Manager) Clear(w http.ResponseWriter) {
 	})
 }
 
-// FromRequest reads szort_session. It reports false when the cookie is missing,
+// FromRequest reads szorty_session. It reports false when the cookie is missing,
 // the HMAC does not match, or exp is not strictly in the future.
 func (m *Manager) FromRequest(r *http.Request) (User, bool) {
 	c, err := r.Cookie(sessionCookie)
@@ -95,7 +95,7 @@ func (m *Manager) IsOwner(u User) bool {
 	return strings.EqualFold(u.Email, m.ownerEmail)
 }
 
-// SetState writes szort_oauth_state for 10 minutes.
+// SetState writes szorty_oauth_state for 10 minutes.
 func (m *Manager) SetState(w http.ResponseWriter, state string) {
 	http.SetCookie(w, m.cookie(stateCookie, state, stateLifetime))
 }

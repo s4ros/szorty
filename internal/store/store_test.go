@@ -16,7 +16,7 @@ const codeAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv
 
 func openStore(t *testing.T) *Store {
 	t.Helper()
-	return openAt(t, filepath.Join(t.TempDir(), "szort.db"))
+	return openAt(t, filepath.Join(t.TempDir(), "szorty.db"))
 }
 
 func openAt(t *testing.T, path string) *Store {
@@ -106,7 +106,7 @@ func TestOpenSeedsSettingsWALAndMigration(t *testing.T) {
 }
 
 func TestReopenKeepsSettingsAndLinks(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "szort.db")
+	path := filepath.Join(t.TempDir(), "szorty.db")
 	s, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

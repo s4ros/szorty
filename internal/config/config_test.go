@@ -12,7 +12,7 @@ func fullEnv(overrides map[string]string) func(string) string {
 		"SESSION_SECRET":       strings.Repeat("s", 32),
 		"OWNER_EMAIL":          "owner@example.com",
 		"PUBLIC_BASE_URL":      "https://szorty.infinigy.pl",
-		"DB_PATH":              "/data/szort.db",
+		"DB_PATH":              "/data/szorty.db",
 		"LISTEN_ADDR":          ":8080",
 	}
 	for key, value := range overrides {
@@ -105,7 +105,7 @@ func TestLoadSuccess(t *testing.T) {
 		cfg.GoogleClientSecret != "client-secret" ||
 		cfg.OwnerEmail != "owner@example.com" ||
 		cfg.PublicBaseURL != "https://szorty.infinigy.pl" ||
-		cfg.DBPath != "/data/szort.db" ||
+		cfg.DBPath != "/data/szorty.db" ||
 		cfg.ListenAddr != ":8080" ||
 		string(cfg.SessionSecret) != secret {
 		t.Fatalf("Load = %+v", cfg)
