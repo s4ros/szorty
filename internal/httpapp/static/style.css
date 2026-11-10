@@ -136,7 +136,25 @@ button.quiet {
 .shop {
   max-width: 44rem;
   margin: 0 auto;
-  padding: 0.5rem 1.25rem 3rem;
+  padding: 0.5rem 1.25rem 1.5rem;
+}
+
+.colophon {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0.5rem 1.25rem 2rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: color-mix(in srgb, var(--thread) 70%, transparent);
+}
+
+.colophon p {
+  margin: 0;
+}
+
+.colophon a {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
 }
 
 .bench {

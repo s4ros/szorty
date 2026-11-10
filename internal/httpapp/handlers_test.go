@@ -47,6 +47,7 @@ func TestAnonymousHome(t *testing.T) {
 	body := rec.Body.String()
 	mustContain(t, body, wantLogin)
 	mustContain(t, body, `href="/auth/google"`)
+	mustContain(t, body, `Stworzone przez Stefana / <a href="https://infinigy.pl">infinigy.pl</a>`)
 	mustNotContain(t, body, wantButton)
 	mustNotContain(t, body, `name="url"`)
 	mustNotContain(t, body, wantEmptyMine)
@@ -873,7 +874,7 @@ func TestStyleCSS(t *testing.T) {
 	mustContain(t, rec.Body.String(), "grid-template-columns: minmax(0, 1fr)")
 	mustContain(t, rec.Body.String(), "text-overflow: ellipsis")
 	home := get(f.h(), "/")
-	mustContain(t, home.Body.String(), `href="/style.css?v=4"`)
+	mustContain(t, home.Body.String(), `href="/style.css?v=5"`)
 	mustContain(t, home.Body.String(), "<title>Szorty</title>")
 	mustContain(t, home.Body.String(), `>Szorty</a>`)
 }
