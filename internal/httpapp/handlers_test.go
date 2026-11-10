@@ -829,7 +829,7 @@ func TestStyleCSS(t *testing.T) {
 		t.Fatal("css references an external URL")
 	}
 	home := get(f.h(), "/")
-	mustContain(t, home.Body.String(), `href="/style.css"`)
+	mustContain(t, home.Body.String(), `href="/style.css?v=2"`)
 }
 
 type fakeClock struct {

@@ -277,3 +277,19 @@ func (a *App) style(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(a.css)
 }
+
+func (a *App) font(w http.ResponseWriter, r *http.Request) {
+	name := map[string]string{
+		"/font-display.woff2": "static/display.woff2",
+		"/font-body.woff2":    "static/body.woff2",
+		"/font-mono.woff2":    "static/mono.woff2",
+	}[r.URL.Path]
+	body, err := assets.ReadFile(name)
+	if err != nil {
+		a.unknown(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "font/woff2")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}

@@ -1,12 +1,71 @@
 {{define "home"}}
 {{template "start" .}}
+<figure class="bench{{if .NewLink}} is-cut{{end}}" aria-hidden="true">
+<svg class="trousers" viewBox="0 0 360 540">
+<defs>
+<linearGradient id="denim" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#3C74A8"/>
+<stop offset="0.42" stop-color="#1E3A5F"/>
+<stop offset="1" stop-color="#14283F"/>
+</linearGradient>
+</defs>
+<ellipse class="shadow" cx="180" cy="512" rx="100" ry="12"/>
+<g class="scrap scrap-l">
+<path class="cloth" fill="url(#denim)" d="M118 236 L172 236 L164 470 Q136 498 108 470 Z"/>
+<path class="seam" d="M124 244 L116 468"/>
+</g>
+<g class="scrap scrap-r">
+<path class="cloth" fill="url(#denim)" d="M188 236 L242 236 L252 470 Q224 498 196 470 Z"/>
+<path class="seam" d="M236 244 L244 468"/>
+</g>
+<path class="cloth" fill="url(#denim)" d="M130 132 Q112 180 118 236 L172 236 L164 184 Q156 150 150 132 Z"/>
+<path class="cloth" fill="url(#denim)" d="M230 132 Q248 180 242 236 L188 236 L196 184 Q204 150 210 132 Z"/>
+<path class="cloth yoke" fill="url(#denim)" d="M150 126 L210 126 L198 176 Q180 192 162 176 Z"/>
+<rect class="waist" x="120" y="98" width="120" height="36" rx="8"/>
+<g class="loops">
+<rect x="132" y="96" width="8" height="32" rx="2"/>
+<rect x="160" y="94" width="8" height="30" rx="2"/>
+<rect x="192" y="94" width="8" height="30" rx="2"/>
+<rect x="220" y="96" width="8" height="32" rx="2"/>
+</g>
+<circle class="rivet" cx="180" cy="116" r="6"/>
+<path class="seam fly" d="M180 132 C176 156 174 168 180 186"/>
+<path class="pocket" d="M136 156 C154 148 166 160 164 188"/>
+<path class="pocket" d="M224 156 C206 148 194 160 196 188"/>
+<circle class="rivet small" cx="136" cy="158" r="3.2"/>
+<circle class="rivet small" cx="224" cy="158" r="3.2"/>
+<path class="seam" d="M132 140 L122 230"/>
+<path class="seam" d="M228 140 L238 230"/>
+<rect class="cuff" x="118" y="216" width="54" height="20" rx="3"/>
+<rect class="cuff" x="188" y="216" width="54" height="20" rx="3"/>
+<path class="hemstitch" d="M122 230 H168"/>
+<path class="hemstitch" d="M192 230 H238"/>
+<line class="cut-line" x1="104" y1="236" x2="256" y2="236"/>
+</svg>
+<svg class="shears" viewBox="0 0 150 78">
+<g class="blade blade-b">
+<path d="M78 42 L14 58 L14 50 L78 36 Z"/>
+<circle class="loop" cx="112" cy="58" r="14"/>
+<circle class="hole" cx="112" cy="58" r="8"/>
+<path class="handle" d="M78 42 L98 52"/>
+</g>
+<g class="blade blade-a">
+<path d="M78 34 L14 16 L14 24 L78 40 Z"/>
+<circle class="loop" cx="112" cy="16" r="14"/>
+<circle class="hole" cx="112" cy="16" r="8"/>
+<path class="handle" d="M78 34 L98 22"/>
+</g>
+<circle class="screw" cx="78" cy="38" r="5"/>
+</svg>
+</figure>
+{{if not .Email}}<p class="bench-note">Zaloguj się, żeby skrócić adres.</p>{{end}}
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
 {{if .Email}}
 {{if .NewLink}}
-<p><label>Krótki adres <input id="nowy" readonly value="{{.NewLink}}"></label></p>
+<p class="result-tag"><label>Krótki adres <input id="nowy" readonly value="{{.NewLink}}"></label></p>
 {{end}}
-<form method="post" action="/links">
-<p><label>Długi adres <input name="url" type="text" maxlength="2048" autocomplete="off"></label></p>
+<form class="cut-form" method="post" action="/links">
+<p><label>Długi adres <input name="url" type="text" maxlength="2048" autocomplete="off" required></label></p>
 <p><button type="submit">Szortuj to!</button></p>
 </form>
 {{template "linklist" .}}

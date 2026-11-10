@@ -1,18 +1,24 @@
 {{define "dead"}}
 {{template "start" .}}
+<div class="ticket">
 <p>Ten skrót nie działa.</p>
 <p><a href="/">Strona główna</a></p>
+</div>
 {{template "end" .}}
 {{end}}
 
 {{define "unknown"}}
 {{template "start" .}}
+<div class="ticket">
 <p>Nie ma takiej strony.</p>
+</div>
 {{template "end" .}}
 {{end}}
 
 {{define "message"}}
 {{template "start" .}}
+<div class="ticket">
 <p>{{.Error}}</p>
+</div>
 {{template "end" .}}
 {{end}}

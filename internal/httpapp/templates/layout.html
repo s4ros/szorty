@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=2">
 </head>
 <body>
 {{template "header" .}}
-<main>
+<main class="shop">
 {{end}}
 
 {{define "end"}}
@@ -18,8 +18,9 @@
 {{end}}
 
 {{define "header"}}
-<header>
-<p class="mark"><a href="/">Szort</a></p>
+<header class="bar">
+<a class="mark" href="/">Szort</a>
+<div class="bar-side">
 {{if .Email}}
 <p class="who">{{.Email}}</p>
 {{if .Owner}}
@@ -29,20 +30,21 @@
 </nav>
 {{end}}
 <form method="post" action="/logout">
-<button type="submit">Wyloguj</button>
+<button class="quiet" type="submit">Wyloguj</button>
 </form>
 {{else}}
-<p><a href="/auth/google">Zaloguj przez Google</a></p>
+<a class="login" href="/auth/google">Zaloguj przez Google</a>
 {{end}}
+</div>
 </header>
 {{end}}
 
 {{define "linklist"}}
 {{if .Empty}}<p>{{.Empty}}</p>{{end}}
 {{if .Links}}
-<ul>
+<ul class="rack">
 {{range .Links}}
-<li>
+<li class="tag">
 <p><a href="/{{.Code}}">{{.ShortURL}}</a></p>
 <p class="target">{{.Target}}</p>
 <p>{{.Created}}</p>

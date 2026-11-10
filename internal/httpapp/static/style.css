@@ -1,54 +1,623 @@
+@font-face {
+  font-family: "Szort Display";
+  src: url("/font-display.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Szort Body";
+  src: url("/font-body.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Szort Tag";
+  src: url("/font-mono.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --vat: #1e3a5f;
+  --wash: #6e8eae;
+  --thread: #f4e7c8;
+  --rivet: #c4783a;
+  --rivet-dark: #8a4e22;
+  --chalk: #f25b4a;
+  --steel: #d5dde4;
+  --ink: #14283f;
+  --ticket: #f3e6c4;
+  --display: "Szort Display", "Arial Narrow", sans-serif;
+  --body: "Szort Body", "Segoe UI", sans-serif;
+  --tag: "Szort Tag", ui-monospace, monospace;
+}
+
 body {
-  margin: 0 auto;
-  max-width: 36rem;
-  padding: 1.25rem;
-  font-family: sans-serif;
+  margin: 0;
+  min-height: 100vh;
+  color: var(--thread);
+  font-family: var(--body);
+  font-size: 1.05rem;
   line-height: 1.45;
+  background-color: var(--wash);
+  background-image:
+    repeating-linear-gradient(
+      115deg,
+      rgba(255, 255, 255, 0.07) 0 1px,
+      transparent 1px 6px
+    ),
+    repeating-linear-gradient(
+      115deg,
+      transparent 0 7px,
+      rgba(20, 40, 63, 0.12) 7px 8px
+    );
 }
 
-header,
-main,
-nav,
-form,
-ul,
-li,
-p {
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--thread);
+  outline-offset: 3px;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.25rem;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1.1rem 1.25rem 0;
+}
+
+.mark {
+  font-family: var(--display);
+  font-size: 2.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--thread);
+  line-height: 1;
+}
+
+.bar-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+}
+
+.who {
+  margin: 0;
+  font-family: var(--tag);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+
+.bar nav {
+  display: flex;
+  gap: 0.85rem;
+}
+
+.bar nav a {
+  font-family: var(--display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+
+.bar nav a:hover {
+  border-bottom-color: var(--thread);
+}
+
+.login,
+button.quiet {
+  font-family: var(--display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink);
+  background: var(--thread);
+  border: 0;
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+}
+
+.shop {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0.5rem 1.25rem 3rem;
+}
+
+.bench {
+  position: relative;
+  width: min(100%, 22rem);
+  height: 32rem;
+  margin: 0.25rem auto 0;
+  overflow: hidden;
+}
+
+.trousers {
   display: block;
+  width: 100%;
+  height: auto;
+  transform-origin: 50% 12%;
+  animation: sway 5.5s ease-in-out infinite;
 }
 
-nav a,
-.pager a {
-  margin-right: 1rem;
+.waist,
+.loops rect {
+  fill: #173252;
 }
 
-input,
-button {
-  font: inherit;
+.cuff {
+  fill: #173252;
+  opacity: 0;
+}
+
+.rivet {
+  fill: var(--rivet);
+  stroke: #f0c48a;
+  stroke-width: 1;
+}
+
+.rivet.small {
+  stroke-width: 0.6;
+}
+
+.seam,
+.fly,
+.pocket,
+.hemstitch {
+  fill: none;
+  stroke: var(--thread);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+
+.seam,
+.hemstitch {
+  stroke-dasharray: 5 4;
+}
+
+.hemstitch {
+  opacity: 0;
+}
+
+.pocket {
+  stroke-dasharray: 0;
+  stroke-width: 2;
+}
+
+.shadow {
+  fill: rgba(20, 40, 63, 0.28);
+  transform-origin: 180px 518px;
+}
+
+.cut-line {
+  stroke: var(--chalk);
+  stroke-width: 4;
+  stroke-dasharray: 8 6;
+  stroke-linecap: round;
+  opacity: 0;
+}
+
+.shears {
+  position: absolute;
+  width: 9.5rem;
+  left: 46%;
+  top: 34%;
+  opacity: 0;
+  overflow: visible;
+  filter: drop-shadow(0 8px 0 rgba(20, 40, 63, 0.22));
+}
+
+.blade-a,
+.blade-b {
+  transform-box: view-box;
+  transform-origin: 78px 38px;
+}
+
+.blade path {
+  fill: var(--steel);
+  stroke: #8b97a3;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.blade .handle {
+  fill: none;
+  stroke: var(--rivet);
+  stroke-width: 5;
+}
+
+.loop {
+  fill: var(--rivet);
+}
+
+.hole {
+  fill: var(--wash);
+}
+
+.screw {
+  fill: #f0c48a;
+  stroke: var(--rivet-dark);
+  stroke-width: 1;
+}
+
+.bench.is-cut .trousers {
+  animation: none;
+}
+
+.bench.is-cut .shears {
+  animation: shears-in 1.7s ease forwards;
+}
+
+.bench.is-cut .blade-a {
+  animation: close-a 0.28s 0.62s ease forwards;
+}
+
+.bench.is-cut .blade-b {
+  animation: close-b 0.28s 0.62s ease forwards;
+}
+
+.bench.is-cut .cut-line {
+  animation: chalk 0.45s 0.55s ease forwards;
+}
+
+.bench.is-cut .scrap-l {
+  animation: fall-l 0.85s 1s cubic-bezier(0.4, 0.05, 0.2, 1) forwards;
+}
+
+.bench.is-cut .scrap-r {
+  animation: fall-r 0.9s 1.05s cubic-bezier(0.4, 0.05, 0.2, 1) forwards;
+}
+
+.bench.is-cut .shadow {
+  animation: shadow-up 0.8s 1s ease forwards;
+}
+
+.bench.is-cut .cuff,
+.bench.is-cut .hemstitch {
+  animation: cuff-in 0.3s 1.15s forwards;
+}
+
+.bench.is-cut {
+  animation: tighten 0.45s 1.55s ease forwards;
+}
+
+.bench-note,
+.error,
+.notice,
+.aside {
+  text-align: center;
+}
+
+.bench-note {
+  margin: 0 0 1rem;
+  font-family: var(--display);
+  letter-spacing: 0.04em;
+}
+
+.error {
+  color: var(--ink);
+  background: var(--chalk);
+  display: inline-block;
+  margin: 0 auto 1rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 2px;
+}
+
+.shop > .error {
+  display: block;
+  width: fit-content;
+}
+
+.result-tag,
+.cut-form,
+.rack,
+.pager,
+.panel,
+.ticket {
+  margin-top: 1rem;
+}
+
+.result-tag {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.bench.is-cut ~ .result-tag {
+  animation: tag-in 0.45s 1.35s ease forwards;
+}
+
+.result-tag label,
+.cut-form label,
+.panel label {
+  display: block;
+  font-family: var(--display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.95rem;
 }
 
 input {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  margin-top: 0.25rem;
+  margin-top: 0.35rem;
+  padding: 0.8rem 0.85rem;
+  border: 2px dashed var(--vat);
+  border-radius: 0;
+  background: var(--ticket);
+  color: var(--ink);
+  font-family: var(--tag);
+  font-size: 0.95rem;
+}
+
+.cut-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.cut-form p {
+  margin: 0;
+  flex: 1 1 16rem;
+}
+
+.cut-form p:last-child {
+  flex: 0 0 auto;
 }
 
 button {
-  margin-top: 0.5rem;
+  font: inherit;
+  cursor: pointer;
 }
 
-ul {
+.cut-form button {
+  font-family: var(--display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1a1208;
+  background: var(--rivet);
+  border: 0;
+  border-radius: 999px;
+  padding: 0.9rem 1.3rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 7px 0 var(--rivet-dark);
+}
+
+.cut-form button:hover {
+  background: #d48945;
+}
+
+.cut-form button:active {
+  transform: translateY(4px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 3px 0 var(--rivet-dark);
+}
+
+.rack {
   list-style: none;
+  margin: 1.5rem 0 0;
   padding: 0;
+  display: grid;
+  gap: 0.75rem;
 }
 
-li {
-  margin: 1rem 0;
-  padding-top: 1rem;
-  border-top: 1px solid;
+.tag {
+  position: relative;
+  margin: 0;
+  padding: 0.85rem 0.95rem 0.85rem 1.6rem;
+  background: var(--ticket);
+  color: var(--ink);
+  clip-path: polygon(14px 0, 100% 0, 100% 100%, 14px 100%, 0 50%);
 }
 
-a,
+.tag::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--wash);
+  box-shadow: inset 0 0 0 2px var(--vat);
+}
+
+.tag p {
+  margin: 0.2rem 0;
+}
+
+.tag a {
+  font-family: var(--tag);
+  font-size: 0.92rem;
+}
+
 .target {
   overflow-wrap: anywhere;
+}
+
+.tag form {
+  margin-top: 0.45rem;
+}
+
+.tag button {
+  font-family: var(--display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--thread);
+  background: var(--vat);
+  border: 0;
+  padding: 0.35rem 0.7rem;
+}
+
+.pager {
+  display: flex;
+  gap: 1rem;
+}
+
+.pager a {
+  font-family: var(--display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.panel,
+.ticket {
+  background: rgba(20, 40, 63, 0.28);
+  border: 2px dashed var(--thread);
+  padding: 1rem;
+}
+
+.notice {
+  margin-top: 0;
+  font-family: var(--display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.aside {
+  margin-bottom: 0;
+}
+
+@keyframes sway {
+  0%,
+  100% {
+    transform: rotate(-0.7deg);
+  }
+  50% {
+    transform: rotate(0.7deg);
+  }
+}
+
+@keyframes shears-in {
+  0% {
+    opacity: 0;
+    transform: translate(4.5rem, 0.4rem) rotate(-8deg);
+  }
+  28% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0);
+  }
+  62% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(2rem, 1.2rem) rotate(12deg);
+  }
+}
+
+@keyframes close-a {
+  to {
+    transform: rotate(16deg);
+  }
+}
+
+@keyframes close-b {
+  to {
+    transform: rotate(-16deg);
+  }
+}
+
+@keyframes chalk {
+  0% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.85;
+  }
+}
+
+@keyframes fall-l {
+  to {
+    transform: translate(-18px, 150px) rotate(-11deg);
+    opacity: 0;
+  }
+}
+
+@keyframes fall-r {
+  to {
+    transform: translate(22px, 160px) rotate(13deg);
+    opacity: 0;
+  }
+}
+
+@keyframes shadow-up {
+  to {
+    transform: translateY(-230px) scaleX(0.7);
+    opacity: 0.4;
+  }
+}
+
+@keyframes cuff-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tighten {
+  to {
+    height: 15rem;
+  }
+}
+
+@keyframes tag-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trousers,
+  .shears,
+  .scrap,
+  .cut-line,
+  .shadow,
+  .result-tag {
+    animation: none;
+  }
+
+  .bench.is-cut .scrap,
+  .shears {
+    display: none;
+  }
+
+  .bench.is-cut .cut-line,
+  .bench.is-cut .cuff,
+  .bench.is-cut .hemstitch {
+    opacity: 1;
+  }
+
+  .bench.is-cut {
+    height: 15rem;
+  }
+
+  .result-tag {
+    opacity: 1;
+    transform: none;
+  }
 }

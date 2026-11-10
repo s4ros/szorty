@@ -105,6 +105,9 @@ var routes = []route{
 	{http.MethodPost, "/logout", (*App).logout},
 	{http.MethodGet, "/health", (*App).health},
 	{http.MethodGet, "/style.css", (*App).style},
+	{http.MethodGet, "/font-display.woff2", (*App).font},
+	{http.MethodGet, "/font-body.woff2", (*App).font},
+	{http.MethodGet, "/font-mono.woff2", (*App).font},
 }
 
 // New builds the application. exchanger is called only on the OAuth callback.
@@ -134,6 +137,7 @@ func (a *App) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", csp)
+		w.Header().Set("Cache-Control", "no-store")
 		a.serve(w, r)
 	})
 }

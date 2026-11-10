@@ -1,12 +1,14 @@
 {{define "settings"}}
 {{template "start" .}}
-{{if .Notice}}<p>{{.Notice}}</p>{{end}}
+<div class="panel">
+{{if .Notice}}<p class="notice">{{.Notice}}</p>{{end}}
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-<form method="post" action="/ustawienia">
+<form class="cut-form" method="post" action="/ustawienia">
 <p><label>dni retencji <input name="retention_days" type="text" inputmode="numeric" value="{{.Days}}"></label></p>
 <p><label>limit skrótów na godzinę <input name="max_creates_per_hour" type="text" inputmode="numeric" value="{{.Limit}}"></label></p>
 <p><button type="submit">Zapisz</button></p>
 </form>
-<p>Mniejsza liczba dni kasuje starsze żywe skróty przy tym zapisie.</p>
+<p class="aside">Mniejsza liczba dni kasuje starsze żywe skróty przy tym zapisie.</p>
+</div>
 {{template "end" .}}
 {{end}}
