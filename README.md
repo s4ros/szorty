@@ -1,4 +1,4 @@
-# szort
+# Szorty
 
 Short links for `https://szorty.infinigy.pl`. One container on the Docker network `traefik`. The host port is not published.
 

@@ -1,5 +1,5 @@
 @font-face {
-  font-family: "Szort Display";
+  font-family: "Szorty Display";
   src: url("/font-display.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
@@ -7,7 +7,7 @@
 }
 
 @font-face {
-  font-family: "Szort Body";
+  font-family: "Szorty Body";
   src: url("/font-body.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
@@ -15,7 +15,7 @@
 }
 
 @font-face {
-  font-family: "Szort Tag";
+  font-family: "Szorty Tag";
   src: url("/font-mono.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
@@ -32,9 +32,9 @@
   --steel: #d5dde4;
   --ink: #14283f;
   --ticket: #f3e6c4;
-  --display: "Szort Display", "Arial Narrow", sans-serif;
-  --body: "Szort Body", "Segoe UI", sans-serif;
-  --tag: "Szort Tag", ui-monospace, monospace;
+  --display: "Szorty Display", "Arial Narrow", sans-serif;
+  --body: "Szorty Body", "Segoe UI", sans-serif;
+  --tag: "Szorty Tag", ui-monospace, monospace;
 }
 
 body {

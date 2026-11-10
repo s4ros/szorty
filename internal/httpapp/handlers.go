@@ -95,7 +95,7 @@ func (a *App) create(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) homeError(w http.ResponseWriter, r *http.Request, u session.User, status int, msg string) {
 	v := view{
-		Title: "Szort",
+		Title: "Szorty",
 		Email: u.Email,
 		Owner: a.sessions.IsOwner(u),
 		Error: msg,

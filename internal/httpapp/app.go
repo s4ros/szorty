@@ -187,7 +187,7 @@ func (a *App) render(w http.ResponseWriter, status int, name string, data view) 
 }
 
 func (a *App) baseView(r *http.Request) view {
-	v := view{Title: "Szort"}
+	v := view{Title: "Szorty"}
 	u, ok := a.sessions.FromRequest(r)
 	if !ok {
 		return v

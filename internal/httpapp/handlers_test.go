@@ -830,6 +830,8 @@ func TestStyleCSS(t *testing.T) {
 	}
 	home := get(f.h(), "/")
 	mustContain(t, home.Body.String(), `href="/style.css?v=2"`)
+	mustContain(t, home.Body.String(), "<title>Szorty</title>")
+	mustContain(t, home.Body.String(), `>Szorty</a>`)
 }
 
 type fakeClock struct {
