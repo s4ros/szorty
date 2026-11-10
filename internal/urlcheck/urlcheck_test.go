@@ -45,6 +45,7 @@ func TestValidateAccepts(t *testing.T) {
 		{name: "localhost is only a label", raw: "https://localhost.example.com/", want: "https://localhost.example.com/"},
 		{name: "local is only a label", raw: "https://evil.local.com/", want: "https://evil.local.com/"},
 		{name: "name is not resolved", raw: "https://not-a-real-host.invalid/a", want: "https://not-a-real-host.invalid/a"},
+		{name: "short public ipv4", raw: "https://8.8.8/", want: "https://8.8.8/"},
 		{name: "max length", raw: exact, want: exact},
 	}
 	for _, tt := range tests {
@@ -97,6 +98,13 @@ func TestValidateRejects(t *testing.T) {
 		{name: "dot local mixed case", raw: "https://Foo.LOCAL/a"},
 		{name: "dot local trailing dot", raw: "https://printer.local./"},
 		{name: "loopback", raw: "http://127.0.0.1/"},
+		{name: "short loopback", raw: "https://127.1/"},
+		{name: "short loopback three", raw: "https://127.0.1/"},
+		{name: "short private 10", raw: "https://10.1/"},
+		{name: "short private 192.168", raw: "https://192.168.1/"},
+		{name: "short private 172.16", raw: "https://172.16.1/"},
+		{name: "short link local", raw: "https://169.254.43518/"},
+		{name: "short cgnat", raw: "https://100.64.1/"},
 		{name: "loopback port", raw: "https://127.0.0.1:80/"},
 		{name: "loopback rest of range", raw: "https://127.255.255.255/"},
 		{name: "loopback trailing dot", raw: "https://127.0.0.1./"},

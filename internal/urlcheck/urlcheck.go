@@ -51,6 +51,11 @@ func publicHTTP(raw string) bool {
 	if ip := net.ParseIP(host); ip != nil {
 		return !blockedIP(ip)
 	}
+	// Browsers expand 1–4 part decimal IPv4 (no leading zeros). Judge the
+	// expanded address; the returned URL stays as written.
+	if ip, ok := decimalIPv4(host); ok {
+		return !blockedIP(ip)
+	}
 	return strings.Contains(host, ".")
 }
 
@@ -70,4 +75,63 @@ func blockedIP(ip net.IP) bool {
 	}
 	v4 := ip.To4()
 	return v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127
+}
+
+// decimalIPv4 parses a 1–4 part decimal IPv4 literal with no leading zeros.
+// The last part must be smaller than 256^(5−parts), as in the URL Standard.
+// It returns false for any other host, including IPv4-compatible IPv6 text.
+func decimalIPv4(host string) (net.IP, bool) {
+	parts := strings.Split(host, ".")
+	nparts := len(parts)
+	if nparts < 1 || nparts > 4 {
+		return nil, false
+	}
+	nums := make([]uint64, nparts)
+	for i, part := range parts {
+		n, ok := decimalPart(part)
+		if !ok {
+			return nil, false
+		}
+		nums[i] = n
+	}
+	for i := 0; i < nparts-1; i++ {
+		if nums[i] > 255 {
+			return nil, false
+		}
+	}
+	limit := uint64(1)
+	for i := 0; i < 5-nparts; i++ {
+		limit *= 256
+	}
+	if nums[nparts-1] >= limit {
+		return nil, false
+	}
+	ipv4 := nums[nparts-1]
+	for i := 0; i < nparts-1; i++ {
+		pow := uint64(1)
+		for k := 0; k < 3-i; k++ {
+			pow *= 256
+		}
+		ipv4 += nums[i] * pow
+	}
+	return net.IPv4(byte(ipv4>>24), byte(ipv4>>16), byte(ipv4>>8), byte(ipv4)), true
+}
+
+func decimalPart(part string) (uint64, bool) {
+	if part == "" || (len(part) > 1 && part[0] == '0') {
+		return 0, false
+	}
+	var n uint64
+	for i := 0; i < len(part); i++ {
+		c := part[i]
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		digit := uint64(c - '0')
+		if n > (0xffffffff-digit)/10 {
+			return 0, false
+		}
+		n = n*10 + digit
+	}
+	return n, true
 }
