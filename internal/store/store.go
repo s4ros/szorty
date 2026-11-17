@@ -21,7 +21,7 @@ import (
 var schemaFS embed.FS
 
 const (
-	schemaVersion            = "1"
+	schemaVersion            = "2"
 	daySeconds               = 86400
 	hourSeconds              = 3600
 	createTries              = 5
@@ -39,6 +39,7 @@ type Link struct {
 	AuthorSub   string
 	AuthorEmail string
 	CreatedAt   time.Time // UTC
+	Permanent   bool
 }
 
 type Settings struct {
@@ -51,15 +52,22 @@ type Settings struct {
 // rows with created_at in the last 3600 seconds.
 var ErrRateLimited = errors.New("rate limited")
 
+// ErrCodeTaken is returned when the caller supplied a code that is already stored.
+var ErrCodeTaken = errors.New("code taken")
+
+// ErrBadCode is returned when a supplied code is not a random code and not a custom slug.
+// Empty code means "generate" and is not ErrBadCode.
+var ErrBadCode = errors.New("bad code")
+
 // ResolveResult is the outcome of looking up a code.
 type ResolveResult int
 
 const (
-	// ResolveGone means the code is missing, or it was expired and deleted.
+	// ResolveGone means the code is missing, or an ordinary row was expired and deleted.
 	ResolveGone ResolveResult = iota
-	// ResolveLive means the row is inside retention and the target passed the URL check.
+	// ResolveLive means the row is permanent or inside retention, and the target passed urlcheck.Validate.
 	ResolveLive
-	// ResolveBlocked means the row is inside retention but the target failed urlcheck.Validate.
+	// ResolveBlocked means the row is permanent or inside retention, but the target failed urlcheck.Validate.
 	// The row is kept.
 	ResolveBlocked
 )
@@ -103,21 +111,39 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	err := db.QueryRowContext(ctx, `
 		SELECT name FROM sqlite_master
 		WHERE type = 'table' AND name = 'schema_migrations'`).Scan(&name)
-	if err == nil {
-		var n int
-		if err := db.QueryRowContext(ctx, `
-			SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, schemaVersion).Scan(&n); err != nil {
-			return err
-		}
-		if n == 0 {
-			return fmt.Errorf("schema version %s is not applied", schemaVersion)
-		}
-		return nil
+	if errors.Is(err, sql.ErrNoRows) {
+		return applyFresh(ctx, db)
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
 		return err
 	}
+	has2, err := hasSchemaVersion(ctx, db, "2")
+	if err != nil {
+		return err
+	}
+	if has2 {
+		return nil
+	}
+	has1, err := hasSchemaVersion(ctx, db, "1")
+	if err != nil {
+		return err
+	}
+	if !has1 {
+		return fmt.Errorf("schema version %s is not applied", schemaVersion)
+	}
+	return applyPermanentColumn(ctx, db)
+}
 
+func hasSchemaVersion(ctx context.Context, db *sql.DB, version string) (bool, error) {
+	var n int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, version).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func applyFresh(ctx context.Context, db *sql.DB) error {
 	schema, err := schemaFS.ReadFile("schema.sql")
 	if err != nil {
 		return err
@@ -137,6 +163,23 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 
+func applyPermanentColumn(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		ALTER TABLE links ADD COLUMN permanent INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("add permanent: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO schema_migrations (version) VALUES (?)`, schemaVersion); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func seedSettings(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO settings (id, retention_days, max_creates_per_hour, updated_at)
@@ -145,10 +188,20 @@ func seedSettings(ctx context.Context, db *sql.DB) error {
 	return err
 }
 
-// Create inserts one row. ErrRateLimited when this author's rows in the
-// last 3600 seconds are already >= settings.MaxCreatesPerHour.
-// Retries a unique collision up to 5 times, then returns a wrapped error.
+// Create inserts one random, non-permanent row.
 func (s *Store) Create(ctx context.Context, authorSub, authorEmail, target string, now time.Time) (string, error) {
+	return s.CreateChosen(ctx, authorSub, authorEmail, target, "", false, now)
+}
+
+// CreateChosen inserts one row.
+// Empty code generates a random code and retries a primary-key collision up to 5 times.
+// A supplied code must already be Valid or Custom; this method does not lowercase it.
+// ErrCodeTaken when that code is already stored. ErrRateLimited when this author's
+// rows in the last 3600 seconds are already >= settings.MaxCreatesPerHour.
+func (s *Store) CreateChosen(ctx context.Context, authorSub, authorEmail, target, code string, permanent bool, now time.Time) (string, error) {
+	if code != "" && !shortcode.Valid(code) && !shortcode.Custom(code) {
+		return "", ErrBadCode
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
@@ -161,7 +214,6 @@ func (s *Store) Create(ctx context.Context, authorSub, authorEmail, target strin
 		return "", err
 	}
 	var count int
-	// Age <= 3600 seconds still counts. Older than that does not.
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM links
 		WHERE author_sub = ? AND created_at >= ?`, authorSub, now.Unix()-hourSeconds).Scan(&count); err != nil {
@@ -171,20 +223,40 @@ func (s *Store) Create(ctx context.Context, authorSub, authorEmail, target strin
 		return "", ErrRateLimited
 	}
 
-	var last error
-	for try := 0; try < createTries; try++ {
-		code, err := shortcode.New(s.rand)
-		if err != nil {
-			return "", fmt.Errorf("new short code: %w", err)
-		}
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO links (code, target_url, author_sub, author_email, created_at)
-			VALUES (?, ?, ?, ?, ?)`, code, target, authorSub, authorEmail, now.Unix())
+	flag := 0
+	if permanent {
+		flag = 1
+	}
+	if code != "" {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO links (code, target_url, author_sub, author_email, created_at, permanent)
+			VALUES (?, ?, ?, ?, ?, ?)`, code, target, authorSub, authorEmail, now.Unix(), flag)
 		if err == nil {
 			if err := tx.Commit(); err != nil {
 				return "", err
 			}
 			return code, nil
+		}
+		if primaryKeyTaken(err) {
+			return "", ErrCodeTaken
+		}
+		return "", fmt.Errorf("insert link: %w", err)
+	}
+
+	var last error
+	for try := 0; try < createTries; try++ {
+		generated, err := shortcode.New(s.rand)
+		if err != nil {
+			return "", fmt.Errorf("new short code: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO links (code, target_url, author_sub, author_email, created_at, permanent)
+			VALUES (?, ?, ?, ?, ?, ?)`, generated, target, authorSub, authorEmail, now.Unix(), flag)
+		if err == nil {
+			if err := tx.Commit(); err != nil {
+				return "", err
+			}
+			return generated, nil
 		}
 		if !primaryKeyTaken(err) {
 			return "", fmt.Errorf("insert link: %w", err)
@@ -205,6 +277,29 @@ func primaryKeyTaken(err error) bool {
 	return strings.Contains(err.Error(), "UNIQUE constraint failed: links.code")
 }
 
+// lookupCode returns the stored primary key.
+// It tries code exactly, then the lowercase custom slug when that row is absent.
+// A mixed-case random code is not matched through its lowercase spelling.
+func lookupCode(ctx context.Context, tx *sql.Tx, code string) (string, error) {
+	var stored string
+	err := tx.QueryRowContext(ctx, `SELECT code FROM links WHERE code = ?`, code).Scan(&stored)
+	if err == nil {
+		return stored, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	lower := strings.ToLower(code)
+	if lower == code || !shortcode.Custom(lower) {
+		return "", sql.ErrNoRows
+	}
+	err = tx.QueryRowContext(ctx, `SELECT code FROM links WHERE code = ?`, lower).Scan(&stored)
+	if err != nil {
+		return "", err
+	}
+	return stored, nil
+}
+
 // Resolve returns the stored target and whether the code is live, blocked, or gone.
 // An expired row is deleted in this call.
 func (s *Store) Resolve(ctx context.Context, code string, now time.Time) (string, ResolveResult, error) {
@@ -214,13 +309,19 @@ func (s *Store) Resolve(ctx context.Context, code string, now time.Time) (string
 	}
 	defer tx.Rollback()
 
-	var target string
-	var created int64
-	err = tx.QueryRowContext(ctx, `
-		SELECT target_url, created_at FROM links WHERE code = ?`, code).Scan(&target, &created)
+	stored, err := lookupCode(ctx, tx, code)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ResolveGone, nil
 	}
+	if err != nil {
+		return "", ResolveGone, err
+	}
+
+	var target string
+	var created int64
+	var permanent int
+	err = tx.QueryRowContext(ctx, `
+		SELECT target_url, created_at, permanent FROM links WHERE code = ?`, stored).Scan(&target, &created, &permanent)
 	if err != nil {
 		return "", ResolveGone, err
 	}
@@ -230,8 +331,8 @@ func (s *Store) Resolve(ctx context.Context, code string, now time.Time) (string
 		SELECT retention_days FROM settings WHERE id = 1`).Scan(&days); err != nil {
 		return "", ResolveGone, err
 	}
-	if created+int64(days)*daySeconds < now.Unix() {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM links WHERE code = ?`, code); err != nil {
+	if permanent == 0 && created+int64(days)*daySeconds < now.Unix() {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM links WHERE code = ?`, stored); err != nil {
 			return "", ResolveGone, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -248,7 +349,7 @@ func (s *Store) Resolve(ctx context.Context, code string, now time.Time) (string
 // ListByAuthor returns this author's rows, newest first.
 func (s *Store) ListByAuthor(ctx context.Context, sub string, limit, offset int) ([]Link, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT code, target_url, author_sub, author_email, created_at
+		SELECT code, target_url, author_sub, author_email, created_at, permanent
 		FROM links
 		WHERE author_sub = ?
 		ORDER BY created_at DESC, code DESC
@@ -263,7 +364,7 @@ func (s *Store) ListByAuthor(ctx context.Context, sub string, limit, offset int)
 // ListAll returns every row still in the table, newest first.
 func (s *Store) ListAll(ctx context.Context, limit, offset int) ([]Link, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT code, target_url, author_sub, author_email, created_at
+		SELECT code, target_url, author_sub, author_email, created_at, permanent
 		FROM links
 		ORDER BY created_at DESC, code DESC
 		LIMIT ? OFFSET ?`, limit, offset)
@@ -279,10 +380,12 @@ func scanLinks(rows *sql.Rows) ([]Link, error) {
 	for rows.Next() {
 		var link Link
 		var created int64
-		if err := rows.Scan(&link.Code, &link.TargetURL, &link.AuthorSub, &link.AuthorEmail, &created); err != nil {
+		var permanent int
+		if err := rows.Scan(&link.Code, &link.TargetURL, &link.AuthorSub, &link.AuthorEmail, &created, &permanent); err != nil {
 			return nil, err
 		}
 		link.CreatedAt = time.Unix(created, 0).UTC()
+		link.Permanent = permanent != 0
 		out = append(out, link)
 	}
 	if err := rows.Err(); err != nil {
@@ -301,18 +404,22 @@ func (s *Store) Delete(ctx context.Context, code, actorSub string, owner bool) (
 	}
 	defer tx.Rollback()
 
-	var author string
-	err = tx.QueryRowContext(ctx, `SELECT author_sub FROM links WHERE code = ?`, code).Scan(&author)
+	stored, err := lookupCode(ctx, tx, code)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, false, nil
 	}
 	if err != nil {
 		return false, false, err
 	}
+	var author string
+	err = tx.QueryRowContext(ctx, `SELECT author_sub FROM links WHERE code = ?`, stored).Scan(&author)
+	if err != nil {
+		return false, false, err
+	}
 	if !owner && author != actorSub {
 		return true, false, nil
 	}
-	res, err := tx.ExecContext(ctx, `DELETE FROM links WHERE code = ?`, code)
+	res, err := tx.ExecContext(ctx, `DELETE FROM links WHERE code = ?`, stored)
 	if err != nil {
 		return false, false, err
 	}
@@ -322,6 +429,44 @@ func (s *Store) Delete(ctx context.Context, code, actorSub string, owner bool) (
 	}
 	if n == 0 {
 		return false, false, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return false, false, err
+	}
+	return true, true, nil
+}
+
+// SetPermanent sets links.permanent when the actor is the author or owner.
+// found is false when the code is absent.
+// updated is false when the actor is not the author and not owner.
+// An allowed write of the current value still returns updated true.
+func (s *Store) SetPermanent(ctx context.Context, code, actorSub string, owner, permanent bool) (found, updated bool, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, false, err
+	}
+	defer tx.Rollback()
+
+	stored, err := lookupCode(ctx, tx, code)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	var author string
+	if err := tx.QueryRowContext(ctx, `SELECT author_sub FROM links WHERE code = ?`, stored).Scan(&author); err != nil {
+		return false, false, err
+	}
+	if !owner && author != actorSub {
+		return true, false, nil
+	}
+	flag := 0
+	if permanent {
+		flag = 1
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE links SET permanent = ? WHERE code = ?`, flag, stored); err != nil {
+		return false, false, err
 	}
 	if err := tx.Commit(); err != nil {
 		return false, false, err
@@ -370,7 +515,7 @@ func (s *Store) SaveSettings(ctx context.Context, days, limit int, now time.Time
 	}
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM links
-		WHERE created_at + ? < ?`, int64(days)*daySeconds, now.Unix()); err != nil {
+		WHERE permanent = 0 AND created_at + ? < ?`, int64(days)*daySeconds, now.Unix()); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -380,9 +525,10 @@ func (s *Store) SaveSettings(ctx context.Context, days, limit int, now time.Time
 func (s *Store) Sweep(ctx context.Context, now time.Time) (int, error) {
 	res, err := s.db.ExecContext(ctx, `
 		DELETE FROM links
-		WHERE created_at + (
-			SELECT retention_days FROM settings WHERE id = 1
-		) * ? < ?`, daySeconds, now.Unix())
+		WHERE permanent = 0
+		  AND created_at + (
+		    SELECT retention_days FROM settings WHERE id = 1
+		  ) * ? < ?`, daySeconds, now.Unix())
 	if err != nil {
 		return 0, err
 	}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strconv"
@@ -91,8 +92,8 @@ func TestOpenSeedsSettingsWALAndMigration(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT version FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if version != "1" {
-		t.Fatalf("schema version = %q, want 1", version)
+	if version != "2" {
+		t.Fatalf("schema version = %q, want 2", version)
 	}
 	var indexes int
 	if err := s.db.QueryRow(`
@@ -102,6 +103,79 @@ func TestOpenSeedsSettingsWALAndMigration(t *testing.T) {
 	}
 	if indexes != 2 {
 		t.Fatalf("named link indexes = %d, want 2", indexes)
+	}
+}
+
+func TestUpgradeFromVersion1AddsPermanent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "szorty.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("Open raw: %v", err)
+	}
+	const v1 = `
+CREATE TABLE schema_migrations (
+  version TEXT PRIMARY KEY
+);
+CREATE TABLE links (
+  code TEXT PRIMARY KEY,
+  target_url TEXT NOT NULL,
+  author_sub TEXT NOT NULL,
+  author_email TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX links_author_created ON links (author_sub, created_at);
+CREATE INDEX links_created ON links (created_at);
+CREATE TABLE settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  retention_days INTEGER NOT NULL,
+  max_creates_per_hour INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);`
+	if _, err := db.Exec(v1); err != nil {
+		t.Fatalf("v1 schema: %v", err)
+	}
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC).Unix()
+	if _, err := db.Exec(`INSERT INTO schema_migrations (version) VALUES ('1')`); err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO settings (id, retention_days, max_creates_per_hour, updated_at) VALUES (1, 90, 30, ?)`, now); err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO links (code, target_url, author_sub, author_email, created_at) VALUES ('keptCod', 'https://example.com/kept', 'sub', 'a@example.com', ?)`, now); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close raw: %v", err)
+	}
+
+	s := openAt(t, path)
+	ctx := context.Background()
+	var v1n, v2n, cols int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = '1'`).Scan(&v1n); err != nil {
+		t.Fatalf("version 1: %v", err)
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = '2'`).Scan(&v2n); err != nil {
+		t.Fatalf("version 2: %v", err)
+	}
+	if v1n != 1 || v2n != 1 {
+		t.Fatalf("versions v1=%d v2=%d, want 1 and 1", v1n, v2n)
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('links') WHERE name = 'permanent'`).Scan(&cols); err != nil {
+		t.Fatalf("table info: %v", err)
+	}
+	if cols != 1 {
+		t.Fatalf("permanent column count = %d, want 1", cols)
+	}
+	links, err := s.ListByAuthor(ctx, "sub", 10, 0)
+	if err != nil {
+		t.Fatalf("ListByAuthor: %v", err)
+	}
+	if len(links) != 1 || links[0].Code != "keptCod" || links[0].Permanent {
+		t.Fatalf("upgraded link = %+v, want keptCod and not permanent", links)
+	}
+	target, result, err := s.Resolve(ctx, "keptCod", time.Unix(now, 0).UTC())
+	if err != nil || result != ResolveLive || target != "https://example.com/kept" {
+		t.Fatalf("Resolve = %q, %v, %v", target, result, err)
 	}
 }
 
@@ -645,5 +719,215 @@ func TestSweep(t *testing.T) {
 	n, err = s.Sweep(ctx, now)
 	if err != nil || n != 0 {
 		t.Fatalf("second Sweep = %d, %v", n, err)
+	}
+}
+
+func TestCreateChosenPermanentAndTaken(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+
+	code, err := s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/a", "amazon", true, now)
+	if err != nil {
+		t.Fatalf("CreateChosen: %v", err)
+	}
+	if code != "amazon" {
+		t.Fatalf("code = %q", code)
+	}
+	links, err := s.ListByAuthor(ctx, "sub", 10, 0)
+	if err != nil {
+		t.Fatalf("ListByAuthor: %v", err)
+	}
+	if len(links) != 1 || !links[0].Permanent || links[0].TargetURL != "https://example.com/a" {
+		t.Fatalf("link = %+v", links)
+	}
+
+	_, err = s.CreateChosen(ctx, "other", "b@example.com", "https://example.com/b", "amazon", false, now)
+	if !errors.Is(err, ErrCodeTaken) {
+		t.Fatalf("taken error = %v, want ErrCodeTaken", err)
+	}
+	left, err := s.ListAll(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+	if len(left) != 1 || left[0].AuthorSub != "sub" || !left[0].Permanent {
+		t.Fatalf("after taken = %+v", left)
+	}
+
+	_, err = s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/c", "Amazon", false, now)
+	if !errors.Is(err, ErrBadCode) {
+		t.Fatalf("mixed-case error = %v, want ErrBadCode", err)
+	}
+	_, err = s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/c", "a", false, now)
+	if !errors.Is(err, ErrBadCode) {
+		t.Fatalf("short error = %v, want ErrBadCode", err)
+	}
+
+	if err := s.SaveSettings(ctx, 90, 1, now); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+	_, err = s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/d", "kept-name", true, now)
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("rate error = %v, want ErrRateLimited", err)
+	}
+	if rows, err := s.ListAll(ctx, 10, 0); err != nil || len(rows) != 1 {
+		t.Fatalf("rows after rate limit = %+v, %v", rows, err)
+	}
+
+	s.rand = codeReader("randCod")
+	random, err := s.CreateChosen(ctx, "other", "b@example.com", "https://example.com/r", "", true, now)
+	if err != nil || random != "randCod" {
+		t.Fatalf("random permanent = %q, %v", random, err)
+	}
+	got, err := s.ListByAuthor(ctx, "other", 10, 0)
+	if err != nil || len(got) != 1 || got[0].Code != "randCod" || !got[0].Permanent {
+		t.Fatalf("random link = %+v, %v", got, err)
+	}
+}
+
+func TestPermanentSurvivesExpiry(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+	old := now.Add(-100 * day)
+
+	kept, err := s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/kept", "amazon", true, old)
+	if err != nil {
+		t.Fatalf("permanent: %v", err)
+	}
+	s.rand = codeReader("expired")
+	dropped, err := s.Create(ctx, "sub", "a@example.com", "https://example.com/old", old)
+	if err != nil {
+		t.Fatalf("ordinary: %v", err)
+	}
+	blocked, err := s.CreateChosen(ctx, "sub", "a@example.com", "http://127.0.0.1/secret", "blocked-keep", true, old)
+	if err != nil {
+		t.Fatalf("blocked permanent: %v", err)
+	}
+
+	target, result, err := s.Resolve(ctx, "Amazon", now)
+	if err != nil || result != ResolveLive || target != "https://example.com/kept" {
+		t.Fatalf("Amazon Resolve = %q, %v, %v", target, result, err)
+	}
+	target, result, err = s.Resolve(ctx, kept, now)
+	if err != nil || result != ResolveLive || target != "https://example.com/kept" {
+		t.Fatalf("exact Resolve = %q, %v, %v", target, result, err)
+	}
+	if _, result, err = s.Resolve(ctx, dropped, now); err != nil || result != ResolveGone {
+		t.Fatalf("ordinary Resolve = %v, %v", result, err)
+	}
+	target, result, err = s.Resolve(ctx, "Blocked-Keep", now)
+	if err != nil || result != ResolveBlocked || target != "http://127.0.0.1/secret" {
+		t.Fatalf("blocked Resolve = %q, %v, %v", target, result, err)
+	}
+
+	s.rand = codeReader("sweep02")
+	alsoOld, err := s.Create(ctx, "sub", "a@example.com", "https://example.com/2", old)
+	if err != nil {
+		t.Fatalf("sweep row: %v", err)
+	}
+	n, err := s.Sweep(ctx, now)
+	if err != nil || n != 1 {
+		t.Fatalf("Sweep = %d, %v, want 1", n, err)
+	}
+	if _, result, err = s.Resolve(ctx, alsoOld, now); err != nil || result != ResolveGone {
+		t.Fatalf("swept Resolve = %v, %v", result, err)
+	}
+	if _, result, err = s.Resolve(ctx, kept, now); err != nil || result != ResolveLive {
+		t.Fatalf("permanent after sweep = %v, %v", result, err)
+	}
+
+	if err := s.SaveSettings(ctx, 1, 30, now); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+	if _, result, err = s.Resolve(ctx, kept, now); err != nil || result != ResolveLive {
+		t.Fatalf("permanent after shorter retention = %v, %v", result, err)
+	}
+	if _, result, err = s.Resolve(ctx, blocked, now); err != nil || result != ResolveBlocked {
+		t.Fatalf("blocked after shorter retention = %v, %v", result, err)
+	}
+}
+
+func TestLookupDoesNotFoldRandomCase(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	s.rand = codeReader("Abcdefg")
+	if _, err := s.Create(ctx, "sub", "a@example.com", "https://example.com/r", now); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	_, result, err := s.Resolve(ctx, "abcdefg", now)
+	if err != nil || result != ResolveGone {
+		t.Fatalf("lowercase random Resolve = %v, %v", result, err)
+	}
+	target, result, err := s.Resolve(ctx, "Abcdefg", now)
+	if err != nil || result != ResolveLive || target != "https://example.com/r" {
+		t.Fatalf("exact random Resolve = %q, %v, %v", target, result, err)
+	}
+
+	found, deleted, err := s.Delete(ctx, "AMAZON", "sub", false)
+	if err != nil || found || deleted {
+		t.Fatalf("missing Delete = %v, %v, %v", found, deleted, err)
+	}
+	kept, err := s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/a", "amazon", false, now)
+	if err != nil {
+		t.Fatalf("CreateChosen: %v", err)
+	}
+	found, deleted, err = s.Delete(ctx, "Amazon", "bob", false)
+	if err != nil || !found || deleted {
+		t.Fatalf("foreign Delete = %v, %v, %v", found, deleted, err)
+	}
+	found, deleted, err = s.Delete(ctx, "Amazon", "sub", false)
+	if err != nil || !found || !deleted {
+		t.Fatalf("author Delete = %v, %v, %v", found, deleted, err)
+	}
+	if _, result, err = s.Resolve(ctx, kept, now); err != nil || result != ResolveGone {
+		t.Fatalf("after delete = %v, %v", result, err)
+	}
+}
+
+func TestSetPermanent(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	if _, err := s.CreateChosen(ctx, "ann", "ann@example.com", "https://example.com/a", "amazon", false, now); err != nil {
+		t.Fatalf("CreateChosen: %v", err)
+	}
+
+	found, updated, err := s.SetPermanent(ctx, "Amazon", "bob", false, true)
+	if err != nil || !found || updated {
+		t.Fatalf("foreign SetPermanent = %v, %v, %v", found, updated, err)
+	}
+	links, err := s.ListByAuthor(ctx, "ann", 10, 0)
+	if err != nil || len(links) != 1 || links[0].Permanent {
+		t.Fatalf("foreign write changed row: %+v, %v", links, err)
+	}
+
+	found, updated, err = s.SetPermanent(ctx, "Amazon", "ann", false, true)
+	if err != nil || !found || !updated {
+		t.Fatalf("author pin = %v, %v, %v", found, updated, err)
+	}
+	found, updated, err = s.SetPermanent(ctx, "amazon", "ann", false, true)
+	if err != nil || !found || !updated {
+		t.Fatalf("second pin = %v, %v, %v", found, updated, err)
+	}
+	links, err = s.ListByAuthor(ctx, "ann", 10, 0)
+	if err != nil || !links[0].Permanent {
+		t.Fatalf("after pin = %+v, %v", links, err)
+	}
+
+	found, updated, err = s.SetPermanent(ctx, "amazon", "owner", true, false)
+	if err != nil || !found || !updated {
+		t.Fatalf("owner unpin = %v, %v, %v", found, updated, err)
+	}
+	links, err = s.ListByAuthor(ctx, "ann", 10, 0)
+	if err != nil || links[0].Permanent {
+		t.Fatalf("after unpin = %+v, %v", links, err)
+	}
+
+	found, updated, err = s.SetPermanent(ctx, "missing", "ann", true, true)
+	if err != nil || found || updated {
+		t.Fatalf("absent SetPermanent = %v, %v, %v", found, updated, err)
 	}
 }

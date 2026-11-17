@@ -34,6 +34,8 @@ const (
 	wantLogin        = "Zaloguj przez Google"
 	wantButton       = "Szortuj to!"
 	wantSettingsNote = "Mniejsza liczba dni kasuje starsze żywe skróty przy tym zapisie."
+	wantBadCode      = "Zła nazwa skrótu."
+	wantCodeTaken    = "Ten kod jest zajęty."
 
 	publicBase = "https://szorty.infinigy.pl"
 	ownerEmail = "owner@example.com"
@@ -50,6 +52,7 @@ func TestAnonymousHome(t *testing.T) {
 	mustContain(t, body, `Stworzone przez Stefana / <a href="https://infinigy.pl">infinigy.pl</a>`)
 	mustNotContain(t, body, wantButton)
 	mustNotContain(t, body, `name="url"`)
+	mustNotContain(t, body, `name="code"`)
 	mustNotContain(t, body, wantEmptyMine)
 }
 
@@ -74,6 +77,12 @@ func TestUnauthenticatedMutationsRedirectToLogin(t *testing.T) {
 	status(t, short, http.StatusSeeOther)
 	if loc := short.Header().Get("Location"); loc != "/auth/google" {
 		t.Fatalf("POST short delete location = %q", loc)
+	}
+
+	pin := postForm(f.h(), "/links/amazon/staly", url.Values{"permanent": {"1"}, "next": {"/"}})
+	status(t, pin, http.StatusSeeOther)
+	if loc := pin.Header().Get("Location"); loc != "/auth/google" {
+		t.Fatalf("POST pin location = %q", loc)
 	}
 	if f.count(t) != before {
 		t.Fatalf("rows = %d, want %d", f.count(t), before)
@@ -181,6 +190,92 @@ func TestRateLimit(t *testing.T) {
 	}
 }
 
+func TestCreateCustomAndPermanent(t *testing.T) {
+	f := newFixture(t)
+	user := f.session(t, "user-sub", "user@example.com")
+
+	rec := postForm(f.h(), "/links", url.Values{
+		"url":       {"https://example.com/a"},
+		"code":      {"  Amazon  "},
+		"permanent": {"1"},
+	}, user)
+	status(t, rec, http.StatusSeeOther)
+	if loc := rec.Header().Get("Location"); loc != "/?nowy=amazon" {
+		t.Fatalf("location = %q", loc)
+	}
+	got := get(f.h(), "/amazon")
+	status(t, got, http.StatusFound)
+	if got.Header().Get("Location") != "https://example.com/a" {
+		t.Fatalf("resolve = %q", got.Header().Get("Location"))
+	}
+	rows, err := f.st.ListByAuthor(context.Background(), "user-sub", 10, 0)
+	if err != nil || len(rows) != 1 || rows[0].Code != "amazon" || !rows[0].Permanent {
+		t.Fatalf("stored = %+v, %v", rows, err)
+	}
+
+	home := get(f.h(), "/?nowy=amazon", user)
+	mustContain(t, home.Body.String(), `id="nowy"`)
+	mustContain(t, home.Body.String(), publicBase+"/amazon")
+
+	taken := postForm(f.h(), "/links", url.Values{
+		"url":  {"https://example.com/b"},
+		"code": {"amazon"},
+	}, user)
+	status(t, taken, http.StatusConflict)
+	mustContain(t, taken.Body.String(), wantCodeTaken)
+	if f.count(t) != 1 {
+		t.Fatalf("rows after taken = %d", f.count(t))
+	}
+
+	for _, name := range []string{"a", "amazon-", "moj--link", "health", "links", "auth", "wszystkie"} {
+		bad := postForm(f.h(), "/links", url.Values{
+			"url":  {"https://example.com/c"},
+			"code": {name},
+		}, user)
+		status(t, bad, http.StatusUnprocessableEntity)
+		mustContain(t, bad.Body.String(), wantBadCode)
+	}
+	if f.count(t) != 1 {
+		t.Fatalf("rows after bad names = %d", f.count(t))
+	}
+
+	spaces := postForm(f.h(), "/links", url.Values{
+		"url":  {"https://example.com/space"},
+		"code": {"   "},
+	}, user)
+	status(t, spaces, http.StatusSeeOther)
+	random := nowyCode(t, spaces.Header().Get("Location"))
+	if random == "amazon" {
+		t.Fatal("blank name reused amazon")
+	}
+
+	if err := f.st.SaveSettings(context.Background(), 90, 1, f.clk.Now()); err != nil {
+		t.Fatal(err)
+	}
+	limited := f.session(t, "other-sub", "other@example.com")
+	first := postForm(f.h(), "/links", url.Values{"url": {"https://example.com/one"}}, limited)
+	status(t, first, http.StatusSeeOther)
+	second := postForm(f.h(), "/links", url.Values{
+		"url":  {"https://example.com/two"},
+		"code": {"other-name"},
+	}, limited)
+	status(t, second, http.StatusTooManyRequests)
+	if f.has(t, "other-name") {
+		t.Fatal("rate limit still inserted the custom code")
+	}
+}
+
+func TestHomeFormOffersNameAndPermanent(t *testing.T) {
+	f := newFixture(t)
+	user := f.session(t, "user-sub", "user@example.com")
+	body := get(f.h(), "/", user).Body.String()
+	mustContain(t, body, `name="code"`)
+	mustContain(t, body, `name="permanent"`)
+	mustContain(t, body, "Własna nazwa")
+	mustContain(t, body, "Na stałe")
+	mustContain(t, body, `maxlength="32"`)
+}
+
 func TestDeadCodeSameBody(t *testing.T) {
 	f := newFixture(t)
 	old := f.clk.Now().Add(-91 * 24 * time.Hour)
@@ -252,9 +347,8 @@ func TestHealthAndNonCodePaths(t *testing.T) {
 		t.Fatalf("health body = %q", health.Body.String())
 	}
 
-	// Neighbors of /health, and other single segments that are not 7 base62
-	// characters, are unknown pages and are not looked up as short codes.
-	for _, path := range []string{"/healt", "/health/", "/health.", "/HEALTH", "/abcdef", "/abcdefgh", "/abc-def", "/links"} {
+	// Reserved names and paths that are not a slug stay unknown pages.
+	for _, path := range []string{"/health/", "/health.", "/HEALTH", "/links", "/a", "/amazon-"} {
 		rec := get(f.h(), path)
 		status(t, rec, http.StatusNotFound)
 		assertHTML(t, rec)
@@ -263,11 +357,56 @@ func TestHealthAndNonCodePaths(t *testing.T) {
 		mustNotContain(t, body, wantDead)
 	}
 
+	// A custom-shaped path is a short-code lookup. A missing row is the dead page.
+	for _, path := range []string{"/healt", "/abcdef", "/abcdefgh", "/abc-def", "/amazon"} {
+		rec := get(f.h(), path)
+		status(t, rec, http.StatusNotFound)
+		assertHTML(t, rec)
+		body := rec.Body.String()
+		mustContain(t, body, wantDead)
+		mustNotContain(t, body, wantUnknown)
+	}
+
 	// Seven base62 characters are a code lookup, even next to /health.
 	missing := get(f.h(), "/healthy")
 	status(t, missing, http.StatusNotFound)
 	mustContain(t, missing.Body.String(), wantDead)
 	mustNotContain(t, missing.Body.String(), wantUnknown)
+}
+
+func TestCustomSlugResolvesAndKeepsPermanent(t *testing.T) {
+	f := newFixture(t)
+	old := f.clk.Now().Add(-100 * 24 * time.Hour)
+	if _, err := f.st.CreateChosen(context.Background(), "user-sub", "user@example.com", "https://example.com/a", "amazon", true, old); err != nil {
+		t.Fatal(err)
+	}
+	rec := get(f.h(), "/Amazon")
+	status(t, rec, http.StatusFound)
+	if got := rec.Header().Get("Location"); got != "https://example.com/a" {
+		t.Fatalf("location = %q", got)
+	}
+	if !f.has(t, "amazon") {
+		t.Fatal("permanent slug was deleted on resolve")
+	}
+
+	ordinary := f.mustCreate(t, "user-sub", "user@example.com", "https://example.com/old", old)
+	got := get(f.h(), "/"+ordinary)
+	status(t, got, http.StatusNotFound)
+	mustContain(t, got.Body.String(), wantDead)
+	if f.has(t, ordinary) {
+		t.Fatal("expired ordinary row was kept")
+	}
+}
+
+func TestCustomShapedRoutesAreReserved(t *testing.T) {
+	for _, rt := range routes {
+		rest := strings.TrimPrefix(rt.path, "/")
+		seg, _, _ := strings.Cut(rest, "/")
+		lower := strings.ToLower(seg)
+		if shortcode.Custom(lower) && !reservedCode(lower) {
+			t.Errorf("route segment %q is a custom slug and is not reserved", seg)
+		}
+	}
 }
 
 func TestRegisteredRoutesAreNotCodes(t *testing.T) {
@@ -520,13 +659,81 @@ func TestDeleteRulesAndNext(t *testing.T) {
 		t.Fatalf("missing delete location = %q", loc)
 	}
 
-	badCode := postForm(f.h(), "/links/ab/usun", url.Values{"next": {"/"}}, other)
+	badCode := postForm(f.h(), "/links/a/usun", url.Values{"next": {"/"}}, other)
 	status(t, badCode, http.StatusNotFound)
 	mustContain(t, badCode.Body.String(), wantUnknown)
 	mustNotContain(t, badCode.Body.String(), wantDead)
 
 	empty := get(f.h(), "/", author)
 	mustContain(t, empty.Body.String(), wantEmptyMine)
+}
+
+func TestPermanentListAndToggle(t *testing.T) {
+	f := newFixture(t)
+	author := f.session(t, "author-sub", "author@example.com")
+	other := f.session(t, "other-sub", "other@example.com")
+	owner := f.session(t, "owner-sub", ownerEmail)
+	now := f.clk.Now()
+	if _, err := f.st.CreateChosen(context.Background(), "author-sub", "author@example.com", "https://example.com/a", "amazon", true, now); err != nil {
+		t.Fatal(err)
+	}
+	ordinary := f.mustCreate(t, "author-sub", "author@example.com", "https://example.com/b", now)
+
+	home := get(f.h(), "/", author)
+	body := home.Body.String()
+	mustContain(t, body, "na stałe")
+	mustContain(t, body, "Przywróć retencję")
+	mustContain(t, body, `/links/amazon/staly`)
+	mustContain(t, body, `name="permanent" value="0"`)
+	mustContain(t, body, "Na stałe")
+	mustContain(t, body, `/links/`+ordinary+`/staly`)
+	mustContain(t, body, `<span class="days">`)
+
+	denied := postForm(f.h(), "/links/Amazon/staly", url.Values{"permanent": {"0"}, "next": {"/"}}, other)
+	status(t, denied, http.StatusNotFound)
+	mustContain(t, denied.Body.String(), wantUnknown)
+	rows, err := f.st.ListByAuthor(context.Background(), "author-sub", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Code == "amazon" && !row.Permanent {
+			t.Fatal("foreign unpin changed amazon")
+		}
+	}
+
+	unpin := postForm(f.h(), "/links/Amazon/staly", url.Values{"permanent": {"0"}, "next": {"/"}}, author)
+	status(t, unpin, http.StatusSeeOther)
+	if loc := unpin.Header().Get("Location"); loc != "/" {
+		t.Fatalf("unpin location = %q", loc)
+	}
+	rows, err = f.st.ListByAuthor(context.Background(), "author-sub", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Code == "amazon" && row.Permanent {
+			t.Fatal("author unpin kept the flag")
+		}
+	}
+
+	pin := postForm(f.h(), "/links/"+ordinary+"/staly", url.Values{"permanent": {"1"}, "next": {"/wszystkie"}}, owner)
+	status(t, pin, http.StatusSeeOther)
+	if loc := pin.Header().Get("Location"); loc != "/wszystkie" {
+		t.Fatalf("owner pin location = %q", loc)
+	}
+	all := get(f.h(), "/wszystkie", owner)
+	mustContain(t, all.Body.String(), "na stałe")
+
+	bad := postForm(f.h(), "/links/a/staly", url.Values{"permanent": {"1"}}, author)
+	status(t, bad, http.StatusNotFound)
+	mustContain(t, bad.Body.String(), wantUnknown)
+
+	del := postForm(f.h(), "/links/amazon/usun", url.Values{"next": {"/"}}, author)
+	status(t, del, http.StatusSeeOther)
+	if f.has(t, "amazon") {
+		t.Fatal("author delete kept the custom code")
+	}
 }
 
 func TestOAuthFake(t *testing.T) {
@@ -874,7 +1081,7 @@ func TestStyleCSS(t *testing.T) {
 	mustContain(t, rec.Body.String(), "grid-template-columns: minmax(0, 1fr)")
 	mustContain(t, rec.Body.String(), "text-overflow: ellipsis")
 	home := get(f.h(), "/")
-	mustContain(t, home.Body.String(), `href="/style.css?v=5"`)
+	mustContain(t, home.Body.String(), `href="/style.css?v=6"`)
 	mustContain(t, home.Body.String(), "<title>Szorty</title>")
 	mustContain(t, home.Body.String(), `>Szorty</a>`)
 }

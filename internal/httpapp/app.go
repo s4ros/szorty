@@ -36,6 +36,8 @@ const (
 	msgEmptyMine    = "Nie masz jeszcze skrótów."
 	msgEmptyAll     = "Nie ma żadnych skrótów."
 	msgPageFail     = "Nie udało się wczytać strony. Spróbuj jeszcze raz."
+	msgBadCode      = "Zła nazwa skrótu."
+	msgCodeTaken    = "Ten kod jest zajęty."
 )
 
 // Exchanger turns an OAuth authorization code into an identity.
@@ -79,13 +81,14 @@ type view struct {
 }
 
 type linkView struct {
-	Code     string
-	ShortURL string
-	Target   string
-	Created  string
-	DaysLeft int
-	Author   string
-	Next     string
+	Code      string
+	ShortURL  string
+	Target    string
+	Created   string
+	DaysLeft  int
+	Permanent bool
+	Author    string
+	Next      string
 }
 
 // route is a literal path. A single path segment must not match a short code.
@@ -95,21 +98,27 @@ type route struct {
 	fn     func(*App, http.ResponseWriter, *http.Request)
 }
 
-var routes = []route{
-	{http.MethodGet, "/", (*App).home},
-	{http.MethodPost, "/links", (*App).create},
-	{http.MethodGet, "/wszystkie", (*App).listAll},
-	{http.MethodGet, "/ustawienia", (*App).settingsGet},
-	{http.MethodPost, "/ustawienia", (*App).settingsPost},
-	{http.MethodGet, "/auth/google", (*App).authGoogle},
-	{http.MethodGet, "/auth/callback", (*App).authCallback},
-	{http.MethodPost, "/logout", (*App).logout},
-	{http.MethodGet, "/health", (*App).health},
-	{http.MethodGet, "/style.css", (*App).style},
-	{http.MethodGet, "/copy.js", (*App).copyJS},
-	{http.MethodGet, "/font-display.woff2", (*App).font},
-	{http.MethodGet, "/font-body.woff2", (*App).font},
-	{http.MethodGet, "/font-mono.woff2", (*App).font},
+// routes is assigned in init. create calls reservedCode, and reservedCode reads
+// routes, so the slice cannot name create in a package-level initializer.
+var routes []route
+
+func init() {
+	routes = []route{
+		{http.MethodGet, "/", (*App).home},
+		{http.MethodPost, "/links", (*App).create},
+		{http.MethodGet, "/wszystkie", (*App).listAll},
+		{http.MethodGet, "/ustawienia", (*App).settingsGet},
+		{http.MethodPost, "/ustawienia", (*App).settingsPost},
+		{http.MethodGet, "/auth/google", (*App).authGoogle},
+		{http.MethodGet, "/auth/callback", (*App).authCallback},
+		{http.MethodPost, "/logout", (*App).logout},
+		{http.MethodGet, "/health", (*App).health},
+		{http.MethodGet, "/style.css", (*App).style},
+		{http.MethodGet, "/copy.js", (*App).copyJS},
+		{http.MethodGet, "/font-display.woff2", (*App).font},
+		{http.MethodGet, "/font-body.woff2", (*App).font},
+		{http.MethodGet, "/font-mono.woff2", (*App).font},
+	}
 }
 
 // New builds the application. exchanger is called only on the OAuth callback.
@@ -157,7 +166,7 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if r.Method == http.MethodGet {
-		if code, ok := oneSegment(r.URL.Path); ok && shortcode.Valid(code) {
+		if code, ok := oneSegment(r.URL.Path); ok && codeLooksUp(code) {
 			a.resolve(w, r, code)
 			return
 		}
@@ -167,8 +176,35 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request) {
 			a.remove(w, r, code)
 			return
 		}
+		if code, ok := permanentPath(r.URL.Path); ok {
+			a.setPermanent(w, r, code)
+			return
+		}
 	}
 	a.unknown(w, r)
+}
+
+// reservedCode reports whether code is the first segment of a registered route.
+// code is compared exactly, so callers pass the lowercase slug.
+func reservedCode(code string) bool {
+	for _, rt := range routes {
+		rest := strings.TrimPrefix(rt.path, "/")
+		seg, _, _ := strings.Cut(rest, "/")
+		if seg != "" && seg == code {
+			return true
+		}
+	}
+	return false
+}
+
+// codeLooksUp reports whether a single path segment should be resolved as a short link.
+// Registered routes are matched before this is called.
+func codeLooksUp(code string) bool {
+	if shortcode.Valid(code) {
+		return true
+	}
+	lower := strings.ToLower(code)
+	return shortcode.Custom(lower) && !reservedCode(lower)
 }
 
 func oauthConfig(cfg config.Config) *oauth2.Config {
@@ -244,12 +280,13 @@ func (a *App) toLinks(rows []store.Link, retention int, now time.Time, next stri
 	out := make([]linkView, 0, len(rows))
 	for _, row := range rows {
 		item := linkView{
-			Code:     row.Code,
-			ShortURL: a.absolute(row.Code),
-			Target:   row.TargetURL,
-			Created:  row.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
-			DaysLeft: daysLeft(row.CreatedAt, retention, now),
-			Next:     next,
+			Code:      row.Code,
+			ShortURL:  a.absolute(row.Code),
+			Target:    row.TargetURL,
+			Created:   row.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
+			DaysLeft:  daysLeft(row.CreatedAt, retention, now),
+			Permanent: row.Permanent,
+			Next:      next,
 		}
 		if withAuthor {
 			item.Author = row.AuthorEmail
@@ -292,7 +329,7 @@ func (a *App) loadLinks(ctx context.Context, v *view, page int, now time.Time, s
 }
 
 func (a *App) authorHas(ctx context.Context, sub, code string) (bool, error) {
-	if sub == "" || !shortcode.Valid(code) {
+	if sub == "" || !shortcode.Accept(code) {
 		return false, nil
 	}
 	for offset := 0; ; offset += pageSize {
@@ -352,6 +389,18 @@ func deletePath(path string) (string, bool) {
 		return "", false
 	}
 	code, ok := strings.CutSuffix(rest, "/usun")
+	if !ok || code == "" || strings.Contains(code, "/") {
+		return "", false
+	}
+	return code, true
+}
+
+func permanentPath(path string) (string, bool) {
+	rest, ok := strings.CutPrefix(path, "/links/")
+	if !ok {
+		return "", false
+	}
+	code, ok := strings.CutSuffix(rest, "/staly")
 	if !ok || code == "" || strings.Contains(code, "/") {
 		return "", false
 	}
