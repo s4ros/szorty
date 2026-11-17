@@ -3,7 +3,7 @@ name: szorty
 services:
   szorty:
     build: .
-    image: szorty:1.0.0
+    image: szorty:1.1.0
     restart: always
     env_file: .env
     environment:
