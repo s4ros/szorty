@@ -52,6 +52,13 @@ type Settings struct {
 // rows with created_at in the last 3600 seconds.
 var ErrRateLimited = errors.New("rate limited")
 
+// ErrCodeTaken is returned when the caller supplied a code that is already stored.
+var ErrCodeTaken = errors.New("code taken")
+
+// ErrBadCode is returned when a supplied code is not a random code and not a custom slug.
+// Empty code means "generate" and is not ErrBadCode.
+var ErrBadCode = errors.New("bad code")
+
 // ResolveResult is the outcome of looking up a code.
 type ResolveResult int
 
@@ -181,10 +188,20 @@ func seedSettings(ctx context.Context, db *sql.DB) error {
 	return err
 }
 
-// Create inserts one row. ErrRateLimited when this author's rows in the
-// last 3600 seconds are already >= settings.MaxCreatesPerHour.
-// Retries a unique collision up to 5 times, then returns a wrapped error.
+// Create inserts one random, non-permanent row.
 func (s *Store) Create(ctx context.Context, authorSub, authorEmail, target string, now time.Time) (string, error) {
+	return s.CreateChosen(ctx, authorSub, authorEmail, target, "", false, now)
+}
+
+// CreateChosen inserts one row.
+// Empty code generates a random code and retries a primary-key collision up to 5 times.
+// A supplied code must already be Valid or Custom; this method does not lowercase it.
+// ErrCodeTaken when that code is already stored. ErrRateLimited when this author's
+// rows in the last 3600 seconds are already >= settings.MaxCreatesPerHour.
+func (s *Store) CreateChosen(ctx context.Context, authorSub, authorEmail, target, code string, permanent bool, now time.Time) (string, error) {
+	if code != "" && !shortcode.Valid(code) && !shortcode.Custom(code) {
+		return "", ErrBadCode
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
@@ -197,7 +214,6 @@ func (s *Store) Create(ctx context.Context, authorSub, authorEmail, target strin
 		return "", err
 	}
 	var count int
-	// Age <= 3600 seconds still counts. Older than that does not.
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM links
 		WHERE author_sub = ? AND created_at >= ?`, authorSub, now.Unix()-hourSeconds).Scan(&count); err != nil {
@@ -207,20 +223,40 @@ func (s *Store) Create(ctx context.Context, authorSub, authorEmail, target strin
 		return "", ErrRateLimited
 	}
 
-	var last error
-	for try := 0; try < createTries; try++ {
-		code, err := shortcode.New(s.rand)
-		if err != nil {
-			return "", fmt.Errorf("new short code: %w", err)
-		}
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO links (code, target_url, author_sub, author_email, created_at)
-			VALUES (?, ?, ?, ?, ?)`, code, target, authorSub, authorEmail, now.Unix())
+	flag := 0
+	if permanent {
+		flag = 1
+	}
+	if code != "" {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO links (code, target_url, author_sub, author_email, created_at, permanent)
+			VALUES (?, ?, ?, ?, ?, ?)`, code, target, authorSub, authorEmail, now.Unix(), flag)
 		if err == nil {
 			if err := tx.Commit(); err != nil {
 				return "", err
 			}
 			return code, nil
+		}
+		if primaryKeyTaken(err) {
+			return "", ErrCodeTaken
+		}
+		return "", fmt.Errorf("insert link: %w", err)
+	}
+
+	var last error
+	for try := 0; try < createTries; try++ {
+		generated, err := shortcode.New(s.rand)
+		if err != nil {
+			return "", fmt.Errorf("new short code: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO links (code, target_url, author_sub, author_email, created_at, permanent)
+			VALUES (?, ?, ?, ?, ?, ?)`, generated, target, authorSub, authorEmail, now.Unix(), flag)
+		if err == nil {
+			if err := tx.Commit(); err != nil {
+				return "", err
+			}
+			return generated, nil
 		}
 		if !primaryKeyTaken(err) {
 			return "", fmt.Errorf("insert link: %w", err)

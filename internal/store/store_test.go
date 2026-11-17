@@ -721,3 +721,66 @@ func TestSweep(t *testing.T) {
 		t.Fatalf("second Sweep = %d, %v", n, err)
 	}
 }
+
+func TestCreateChosenPermanentAndTaken(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+
+	code, err := s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/a", "amazon", true, now)
+	if err != nil {
+		t.Fatalf("CreateChosen: %v", err)
+	}
+	if code != "amazon" {
+		t.Fatalf("code = %q", code)
+	}
+	links, err := s.ListByAuthor(ctx, "sub", 10, 0)
+	if err != nil {
+		t.Fatalf("ListByAuthor: %v", err)
+	}
+	if len(links) != 1 || !links[0].Permanent || links[0].TargetURL != "https://example.com/a" {
+		t.Fatalf("link = %+v", links)
+	}
+
+	_, err = s.CreateChosen(ctx, "other", "b@example.com", "https://example.com/b", "amazon", false, now)
+	if !errors.Is(err, ErrCodeTaken) {
+		t.Fatalf("taken error = %v, want ErrCodeTaken", err)
+	}
+	left, err := s.ListAll(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+	if len(left) != 1 || left[0].AuthorSub != "sub" || !left[0].Permanent {
+		t.Fatalf("after taken = %+v", left)
+	}
+
+	_, err = s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/c", "Amazon", false, now)
+	if !errors.Is(err, ErrBadCode) {
+		t.Fatalf("mixed-case error = %v, want ErrBadCode", err)
+	}
+	_, err = s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/c", "a", false, now)
+	if !errors.Is(err, ErrBadCode) {
+		t.Fatalf("short error = %v, want ErrBadCode", err)
+	}
+
+	if err := s.SaveSettings(ctx, 90, 1, now); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+	_, err = s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/d", "kept-name", true, now)
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("rate error = %v, want ErrRateLimited", err)
+	}
+	if rows, err := s.ListAll(ctx, 10, 0); err != nil || len(rows) != 1 {
+		t.Fatalf("rows after rate limit = %+v, %v", rows, err)
+	}
+
+	s.rand = codeReader("randCod")
+	random, err := s.CreateChosen(ctx, "other", "b@example.com", "https://example.com/r", "", true, now)
+	if err != nil || random != "randCod" {
+		t.Fatalf("random permanent = %q, %v", random, err)
+	}
+	got, err := s.ListByAuthor(ctx, "other", 10, 0)
+	if err != nil || len(got) != 1 || got[0].Code != "randCod" || !got[0].Permanent {
+		t.Fatalf("random link = %+v, %v", got, err)
+	}
+}
