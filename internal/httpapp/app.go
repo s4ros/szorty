@@ -81,13 +81,14 @@ type view struct {
 }
 
 type linkView struct {
-	Code     string
-	ShortURL string
-	Target   string
-	Created  string
-	DaysLeft int
-	Author   string
-	Next     string
+	Code      string
+	ShortURL  string
+	Target    string
+	Created   string
+	DaysLeft  int
+	Permanent bool
+	Author    string
+	Next      string
 }
 
 // route is a literal path. A single path segment must not match a short code.
@@ -173,6 +174,10 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		if code, ok := deletePath(r.URL.Path); ok {
 			a.remove(w, r, code)
+			return
+		}
+		if code, ok := permanentPath(r.URL.Path); ok {
+			a.setPermanent(w, r, code)
 			return
 		}
 	}
@@ -275,12 +280,13 @@ func (a *App) toLinks(rows []store.Link, retention int, now time.Time, next stri
 	out := make([]linkView, 0, len(rows))
 	for _, row := range rows {
 		item := linkView{
-			Code:     row.Code,
-			ShortURL: a.absolute(row.Code),
-			Target:   row.TargetURL,
-			Created:  row.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
-			DaysLeft: daysLeft(row.CreatedAt, retention, now),
-			Next:     next,
+			Code:      row.Code,
+			ShortURL:  a.absolute(row.Code),
+			Target:    row.TargetURL,
+			Created:   row.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"),
+			DaysLeft:  daysLeft(row.CreatedAt, retention, now),
+			Permanent: row.Permanent,
+			Next:      next,
 		}
 		if withAuthor {
 			item.Author = row.AuthorEmail
@@ -383,6 +389,18 @@ func deletePath(path string) (string, bool) {
 		return "", false
 	}
 	code, ok := strings.CutSuffix(rest, "/usun")
+	if !ok || code == "" || strings.Contains(code, "/") {
+		return "", false
+	}
+	return code, true
+}
+
+func permanentPath(path string) (string, bool) {
+	rest, ok := strings.CutPrefix(path, "/links/")
+	if !ok {
+		return "", false
+	}
+	code, ok := strings.CutSuffix(rest, "/staly")
 	if !ok || code == "" || strings.Contains(code, "/") {
 		return "", false
 	}

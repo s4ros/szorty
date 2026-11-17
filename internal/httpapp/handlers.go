@@ -145,7 +145,7 @@ func (a *App) remove(w http.ResponseWriter, r *http.Request, code string) {
 		http.Redirect(w, r, "/auth/google", http.StatusSeeOther)
 		return
 	}
-	if !shortcode.Valid(code) {
+	if !shortcode.Accept(code) {
 		a.unknown(w, r)
 		return
 	}
@@ -159,6 +159,37 @@ func (a *App) remove(w http.ResponseWriter, r *http.Request, code string) {
 		return
 	}
 	if found && !deleted {
+		a.unknown(w, r)
+		return
+	}
+	if safeNext(r.PostFormValue("next"), owner) == "/wszystkie" {
+		http.Redirect(w, r, "/wszystkie", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (a *App) setPermanent(w http.ResponseWriter, r *http.Request, code string) {
+	u, ok := a.sessions.FromRequest(r)
+	if !ok {
+		http.Redirect(w, r, "/auth/google", http.StatusSeeOther)
+		return
+	}
+	if !shortcode.Accept(code) {
+		a.unknown(w, r)
+		return
+	}
+	limitBody(w, r)
+	_ = r.ParseForm()
+	owner := a.sessions.IsOwner(u)
+	permanent := r.PostFormValue("permanent") == "1"
+	found, updated, err := a.store.SetPermanent(r.Context(), code, u.Sub, owner, permanent)
+	if err != nil {
+		log.Printf("permanent failed")
+		a.message(w, r, http.StatusInternalServerError, msgPageFail)
+		return
+	}
+	if found && !updated {
 		a.unknown(w, r)
 		return
 	}

@@ -52,11 +52,16 @@
 <p><a class="short" href="/{{.Code}}">{{.ShortURL}}</a></p>
 <p class="origin"><span class="target" title="{{.Target}}">{{.Target}}</span><button type="button" data-copy="{{.Target}}">Kopiuj</button></p>
 <p>{{.Created}}</p>
-<p>dni: <span class="days">{{.DaysLeft}}</span></p>
+{{if .Permanent}}<p>na stałe</p>{{else}}<p>dni: <span class="days">{{.DaysLeft}}</span></p>{{end}}
 {{if .Author}}<p>{{.Author}}</p>{{end}}
 <form method="post" action="/links/{{.Code}}/usun">
 <input type="hidden" name="next" value="{{.Next}}">
 <button type="submit">Usuń</button>
+</form>
+<form method="post" action="/links/{{.Code}}/staly">
+<input type="hidden" name="next" value="{{.Next}}">
+<input type="hidden" name="permanent" value="{{if .Permanent}}0{{else}}1{{end}}">
+<button type="submit">{{if .Permanent}}Przywróć retencję{{else}}Na stałe{{end}}</button>
 </form>
 </li>
 {{end}}

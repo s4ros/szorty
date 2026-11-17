@@ -78,6 +78,12 @@ func TestUnauthenticatedMutationsRedirectToLogin(t *testing.T) {
 	if loc := short.Header().Get("Location"); loc != "/auth/google" {
 		t.Fatalf("POST short delete location = %q", loc)
 	}
+
+	pin := postForm(f.h(), "/links/amazon/staly", url.Values{"permanent": {"1"}, "next": {"/"}})
+	status(t, pin, http.StatusSeeOther)
+	if loc := pin.Header().Get("Location"); loc != "/auth/google" {
+		t.Fatalf("POST pin location = %q", loc)
+	}
 	if f.count(t) != before {
 		t.Fatalf("rows = %d, want %d", f.count(t), before)
 	}
@@ -653,13 +659,81 @@ func TestDeleteRulesAndNext(t *testing.T) {
 		t.Fatalf("missing delete location = %q", loc)
 	}
 
-	badCode := postForm(f.h(), "/links/ab/usun", url.Values{"next": {"/"}}, other)
+	badCode := postForm(f.h(), "/links/a/usun", url.Values{"next": {"/"}}, other)
 	status(t, badCode, http.StatusNotFound)
 	mustContain(t, badCode.Body.String(), wantUnknown)
 	mustNotContain(t, badCode.Body.String(), wantDead)
 
 	empty := get(f.h(), "/", author)
 	mustContain(t, empty.Body.String(), wantEmptyMine)
+}
+
+func TestPermanentListAndToggle(t *testing.T) {
+	f := newFixture(t)
+	author := f.session(t, "author-sub", "author@example.com")
+	other := f.session(t, "other-sub", "other@example.com")
+	owner := f.session(t, "owner-sub", ownerEmail)
+	now := f.clk.Now()
+	if _, err := f.st.CreateChosen(context.Background(), "author-sub", "author@example.com", "https://example.com/a", "amazon", true, now); err != nil {
+		t.Fatal(err)
+	}
+	ordinary := f.mustCreate(t, "author-sub", "author@example.com", "https://example.com/b", now)
+
+	home := get(f.h(), "/", author)
+	body := home.Body.String()
+	mustContain(t, body, "na stałe")
+	mustContain(t, body, "Przywróć retencję")
+	mustContain(t, body, `/links/amazon/staly`)
+	mustContain(t, body, `name="permanent" value="0"`)
+	mustContain(t, body, "Na stałe")
+	mustContain(t, body, `/links/`+ordinary+`/staly`)
+	mustContain(t, body, `<span class="days">`)
+
+	denied := postForm(f.h(), "/links/Amazon/staly", url.Values{"permanent": {"0"}, "next": {"/"}}, other)
+	status(t, denied, http.StatusNotFound)
+	mustContain(t, denied.Body.String(), wantUnknown)
+	rows, err := f.st.ListByAuthor(context.Background(), "author-sub", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Code == "amazon" && !row.Permanent {
+			t.Fatal("foreign unpin changed amazon")
+		}
+	}
+
+	unpin := postForm(f.h(), "/links/Amazon/staly", url.Values{"permanent": {"0"}, "next": {"/"}}, author)
+	status(t, unpin, http.StatusSeeOther)
+	if loc := unpin.Header().Get("Location"); loc != "/" {
+		t.Fatalf("unpin location = %q", loc)
+	}
+	rows, err = f.st.ListByAuthor(context.Background(), "author-sub", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Code == "amazon" && row.Permanent {
+			t.Fatal("author unpin kept the flag")
+		}
+	}
+
+	pin := postForm(f.h(), "/links/"+ordinary+"/staly", url.Values{"permanent": {"1"}, "next": {"/wszystkie"}}, owner)
+	status(t, pin, http.StatusSeeOther)
+	if loc := pin.Header().Get("Location"); loc != "/wszystkie" {
+		t.Fatalf("owner pin location = %q", loc)
+	}
+	all := get(f.h(), "/wszystkie", owner)
+	mustContain(t, all.Body.String(), "na stałe")
+
+	bad := postForm(f.h(), "/links/a/staly", url.Values{"permanent": {"1"}}, author)
+	status(t, bad, http.StatusNotFound)
+	mustContain(t, bad.Body.String(), wantUnknown)
+
+	del := postForm(f.h(), "/links/amazon/usun", url.Values{"next": {"/"}}, author)
+	status(t, del, http.StatusSeeOther)
+	if f.has(t, "amazon") {
+		t.Fatal("author delete kept the custom code")
+	}
 }
 
 func TestOAuthFake(t *testing.T) {
