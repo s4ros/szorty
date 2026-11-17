@@ -436,6 +436,44 @@ func (s *Store) Delete(ctx context.Context, code, actorSub string, owner bool) (
 	return true, true, nil
 }
 
+// SetPermanent sets links.permanent when the actor is the author or owner.
+// found is false when the code is absent.
+// updated is false when the actor is not the author and not owner.
+// An allowed write of the current value still returns updated true.
+func (s *Store) SetPermanent(ctx context.Context, code, actorSub string, owner, permanent bool) (found, updated bool, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, false, err
+	}
+	defer tx.Rollback()
+
+	stored, err := lookupCode(ctx, tx, code)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	var author string
+	if err := tx.QueryRowContext(ctx, `SELECT author_sub FROM links WHERE code = ?`, stored).Scan(&author); err != nil {
+		return false, false, err
+	}
+	if !owner && author != actorSub {
+		return true, false, nil
+	}
+	flag := 0
+	if permanent {
+		flag = 1
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE links SET permanent = ? WHERE code = ?`, flag, stored); err != nil {
+		return false, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, false, err
+	}
+	return true, true, nil
+}
+
 func (s *Store) GetSettings(ctx context.Context) (Settings, error) {
 	var got Settings
 	var updated int64

@@ -886,3 +886,48 @@ func TestLookupDoesNotFoldRandomCase(t *testing.T) {
 		t.Fatalf("after delete = %v, %v", result, err)
 	}
 }
+
+func TestSetPermanent(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	if _, err := s.CreateChosen(ctx, "ann", "ann@example.com", "https://example.com/a", "amazon", false, now); err != nil {
+		t.Fatalf("CreateChosen: %v", err)
+	}
+
+	found, updated, err := s.SetPermanent(ctx, "Amazon", "bob", false, true)
+	if err != nil || !found || updated {
+		t.Fatalf("foreign SetPermanent = %v, %v, %v", found, updated, err)
+	}
+	links, err := s.ListByAuthor(ctx, "ann", 10, 0)
+	if err != nil || len(links) != 1 || links[0].Permanent {
+		t.Fatalf("foreign write changed row: %+v, %v", links, err)
+	}
+
+	found, updated, err = s.SetPermanent(ctx, "Amazon", "ann", false, true)
+	if err != nil || !found || !updated {
+		t.Fatalf("author pin = %v, %v, %v", found, updated, err)
+	}
+	found, updated, err = s.SetPermanent(ctx, "amazon", "ann", false, true)
+	if err != nil || !found || !updated {
+		t.Fatalf("second pin = %v, %v, %v", found, updated, err)
+	}
+	links, err = s.ListByAuthor(ctx, "ann", 10, 0)
+	if err != nil || !links[0].Permanent {
+		t.Fatalf("after pin = %+v, %v", links, err)
+	}
+
+	found, updated, err = s.SetPermanent(ctx, "amazon", "owner", true, false)
+	if err != nil || !found || !updated {
+		t.Fatalf("owner unpin = %v, %v, %v", found, updated, err)
+	}
+	links, err = s.ListByAuthor(ctx, "ann", 10, 0)
+	if err != nil || links[0].Permanent {
+		t.Fatalf("after unpin = %+v, %v", links, err)
+	}
+
+	found, updated, err = s.SetPermanent(ctx, "missing", "ann", true, true)
+	if err != nil || found || updated {
+		t.Fatalf("absent SetPermanent = %v, %v, %v", found, updated, err)
+	}
+}
