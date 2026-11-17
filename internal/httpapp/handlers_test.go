@@ -34,6 +34,8 @@ const (
 	wantLogin        = "Zaloguj przez Google"
 	wantButton       = "Szortuj to!"
 	wantSettingsNote = "Mniejsza liczba dni kasuje starsze żywe skróty przy tym zapisie."
+	wantBadCode      = "Zła nazwa skrótu."
+	wantCodeTaken    = "Ten kod jest zajęty."
 
 	publicBase = "https://szorty.infinigy.pl"
 	ownerEmail = "owner@example.com"
@@ -50,6 +52,7 @@ func TestAnonymousHome(t *testing.T) {
 	mustContain(t, body, `Stworzone przez Stefana / <a href="https://infinigy.pl">infinigy.pl</a>`)
 	mustNotContain(t, body, wantButton)
 	mustNotContain(t, body, `name="url"`)
+	mustNotContain(t, body, `name="code"`)
 	mustNotContain(t, body, wantEmptyMine)
 }
 
@@ -179,6 +182,92 @@ func TestRateLimit(t *testing.T) {
 	if got := f.count(t); got != before {
 		t.Fatalf("rows = %d, want %d", got, before)
 	}
+}
+
+func TestCreateCustomAndPermanent(t *testing.T) {
+	f := newFixture(t)
+	user := f.session(t, "user-sub", "user@example.com")
+
+	rec := postForm(f.h(), "/links", url.Values{
+		"url":       {"https://example.com/a"},
+		"code":      {"  Amazon  "},
+		"permanent": {"1"},
+	}, user)
+	status(t, rec, http.StatusSeeOther)
+	if loc := rec.Header().Get("Location"); loc != "/?nowy=amazon" {
+		t.Fatalf("location = %q", loc)
+	}
+	got := get(f.h(), "/amazon")
+	status(t, got, http.StatusFound)
+	if got.Header().Get("Location") != "https://example.com/a" {
+		t.Fatalf("resolve = %q", got.Header().Get("Location"))
+	}
+	rows, err := f.st.ListByAuthor(context.Background(), "user-sub", 10, 0)
+	if err != nil || len(rows) != 1 || rows[0].Code != "amazon" || !rows[0].Permanent {
+		t.Fatalf("stored = %+v, %v", rows, err)
+	}
+
+	home := get(f.h(), "/?nowy=amazon", user)
+	mustContain(t, home.Body.String(), `id="nowy"`)
+	mustContain(t, home.Body.String(), publicBase+"/amazon")
+
+	taken := postForm(f.h(), "/links", url.Values{
+		"url":  {"https://example.com/b"},
+		"code": {"amazon"},
+	}, user)
+	status(t, taken, http.StatusConflict)
+	mustContain(t, taken.Body.String(), wantCodeTaken)
+	if f.count(t) != 1 {
+		t.Fatalf("rows after taken = %d", f.count(t))
+	}
+
+	for _, name := range []string{"a", "amazon-", "moj--link", "health", "links", "auth", "wszystkie"} {
+		bad := postForm(f.h(), "/links", url.Values{
+			"url":  {"https://example.com/c"},
+			"code": {name},
+		}, user)
+		status(t, bad, http.StatusUnprocessableEntity)
+		mustContain(t, bad.Body.String(), wantBadCode)
+	}
+	if f.count(t) != 1 {
+		t.Fatalf("rows after bad names = %d", f.count(t))
+	}
+
+	spaces := postForm(f.h(), "/links", url.Values{
+		"url":  {"https://example.com/space"},
+		"code": {"   "},
+	}, user)
+	status(t, spaces, http.StatusSeeOther)
+	random := nowyCode(t, spaces.Header().Get("Location"))
+	if random == "amazon" {
+		t.Fatal("blank name reused amazon")
+	}
+
+	if err := f.st.SaveSettings(context.Background(), 90, 1, f.clk.Now()); err != nil {
+		t.Fatal(err)
+	}
+	limited := f.session(t, "other-sub", "other@example.com")
+	first := postForm(f.h(), "/links", url.Values{"url": {"https://example.com/one"}}, limited)
+	status(t, first, http.StatusSeeOther)
+	second := postForm(f.h(), "/links", url.Values{
+		"url":  {"https://example.com/two"},
+		"code": {"other-name"},
+	}, limited)
+	status(t, second, http.StatusTooManyRequests)
+	if f.has(t, "other-name") {
+		t.Fatal("rate limit still inserted the custom code")
+	}
+}
+
+func TestHomeFormOffersNameAndPermanent(t *testing.T) {
+	f := newFixture(t)
+	user := f.session(t, "user-sub", "user@example.com")
+	body := get(f.h(), "/", user).Body.String()
+	mustContain(t, body, `name="code"`)
+	mustContain(t, body, `name="permanent"`)
+	mustContain(t, body, "Własna nazwa")
+	mustContain(t, body, "Na stałe")
+	mustContain(t, body, `maxlength="32"`)
 }
 
 func TestDeadCodeSameBody(t *testing.T) {
@@ -918,7 +1007,7 @@ func TestStyleCSS(t *testing.T) {
 	mustContain(t, rec.Body.String(), "grid-template-columns: minmax(0, 1fr)")
 	mustContain(t, rec.Body.String(), "text-overflow: ellipsis")
 	home := get(f.h(), "/")
-	mustContain(t, home.Body.String(), `href="/style.css?v=5"`)
+	mustContain(t, home.Body.String(), `href="/style.css?v=6"`)
 	mustContain(t, home.Body.String(), "<title>Szorty</title>")
 	mustContain(t, home.Body.String(), `>Szorty</a>`)
 }

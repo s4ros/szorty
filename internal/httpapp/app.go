@@ -36,6 +36,8 @@ const (
 	msgEmptyMine    = "Nie masz jeszcze skrótów."
 	msgEmptyAll     = "Nie ma żadnych skrótów."
 	msgPageFail     = "Nie udało się wczytać strony. Spróbuj jeszcze raz."
+	msgBadCode      = "Zła nazwa skrótu."
+	msgCodeTaken    = "Ten kod jest zajęty."
 )
 
 // Exchanger turns an OAuth authorization code into an identity.
@@ -95,21 +97,27 @@ type route struct {
 	fn     func(*App, http.ResponseWriter, *http.Request)
 }
 
-var routes = []route{
-	{http.MethodGet, "/", (*App).home},
-	{http.MethodPost, "/links", (*App).create},
-	{http.MethodGet, "/wszystkie", (*App).listAll},
-	{http.MethodGet, "/ustawienia", (*App).settingsGet},
-	{http.MethodPost, "/ustawienia", (*App).settingsPost},
-	{http.MethodGet, "/auth/google", (*App).authGoogle},
-	{http.MethodGet, "/auth/callback", (*App).authCallback},
-	{http.MethodPost, "/logout", (*App).logout},
-	{http.MethodGet, "/health", (*App).health},
-	{http.MethodGet, "/style.css", (*App).style},
-	{http.MethodGet, "/copy.js", (*App).copyJS},
-	{http.MethodGet, "/font-display.woff2", (*App).font},
-	{http.MethodGet, "/font-body.woff2", (*App).font},
-	{http.MethodGet, "/font-mono.woff2", (*App).font},
+// routes is assigned in init. create calls reservedCode, and reservedCode reads
+// routes, so the slice cannot name create in a package-level initializer.
+var routes []route
+
+func init() {
+	routes = []route{
+		{http.MethodGet, "/", (*App).home},
+		{http.MethodPost, "/links", (*App).create},
+		{http.MethodGet, "/wszystkie", (*App).listAll},
+		{http.MethodGet, "/ustawienia", (*App).settingsGet},
+		{http.MethodPost, "/ustawienia", (*App).settingsPost},
+		{http.MethodGet, "/auth/google", (*App).authGoogle},
+		{http.MethodGet, "/auth/callback", (*App).authCallback},
+		{http.MethodPost, "/logout", (*App).logout},
+		{http.MethodGet, "/health", (*App).health},
+		{http.MethodGet, "/style.css", (*App).style},
+		{http.MethodGet, "/copy.js", (*App).copyJS},
+		{http.MethodGet, "/font-display.woff2", (*App).font},
+		{http.MethodGet, "/font-body.woff2", (*App).font},
+		{http.MethodGet, "/font-mono.woff2", (*App).font},
+	}
 }
 
 // New builds the application. exchanger is called only on the OAuth callback.
@@ -315,7 +323,7 @@ func (a *App) loadLinks(ctx context.Context, v *view, page int, now time.Time, s
 }
 
 func (a *App) authorHas(ctx context.Context, sub, code string) (bool, error) {
-	if sub == "" || !shortcode.Valid(code) {
+	if sub == "" || !shortcode.Accept(code) {
 		return false, nil
 	}
 	for offset := 0; ; offset += pageSize {

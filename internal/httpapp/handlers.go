@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"szorty.infinigy.pl/internal/session"
@@ -39,7 +40,7 @@ func (a *App) home(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) fillNewLink(ctx context.Context, v *view, u session.User, code string, now time.Time) error {
-	if !shortcode.Valid(code) {
+	if !shortcode.Accept(code) {
 		return nil
 	}
 	owned, err := a.authorHas(ctx, u.Sub, code)
@@ -72,7 +73,18 @@ func (a *App) create(w http.ResponseWriter, r *http.Request) {
 		a.homeError(w, r, u, http.StatusUnprocessableEntity, msgBadURL)
 		return
 	}
-	code, err := a.store.Create(r.Context(), u.Sub, u.Email, target, a.clock.Now())
+	rawName := r.PostFormValue("code")
+	chosen := ""
+	if strings.TrimSpace(rawName) != "" {
+		norm, ok := shortcode.NormalizeCustom(rawName)
+		if !ok || reservedCode(norm) {
+			a.homeError(w, r, u, http.StatusUnprocessableEntity, msgBadCode)
+			return
+		}
+		chosen = norm
+	}
+	permanent := r.PostFormValue("permanent") == "1"
+	code, err := a.store.CreateChosen(r.Context(), u.Sub, u.Email, target, chosen, permanent, a.clock.Now())
 	if err != nil {
 		if errors.Is(err, store.ErrRateLimited) {
 			settings, serr := a.store.GetSettings(r.Context())
@@ -82,6 +94,10 @@ func (a *App) create(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			a.homeError(w, r, u, http.StatusTooManyRequests, fmt.Sprintf("Za dużo skrótów w tej godzinie. Limit to %d.", settings.MaxCreatesPerHour))
+			return
+		}
+		if errors.Is(err, store.ErrCodeTaken) {
+			a.homeError(w, r, u, http.StatusConflict, msgCodeTaken)
 			return
 		}
 		log.Printf("create failed")

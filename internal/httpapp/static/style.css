@@ -667,3 +667,21 @@ button {
     transform: none;
   }
 }
+
+.cut-form p.keep {
+  flex: 1 1 100%;
+}
+
+.cut-form p.keep label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.cut-form input[type="checkbox"] {
+  display: inline-block;
+  width: auto;
+  margin-top: 0;
+}
