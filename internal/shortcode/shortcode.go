@@ -1,6 +1,10 @@
 package shortcode
 
-import "io"
+import (
+	"io"
+	"regexp"
+	"strings"
+)
 
 const (
 	// Length is the number of characters in a short code.
@@ -31,6 +35,38 @@ func Valid(code string) bool {
 		}
 	}
 	return true
+}
+
+// customPattern is a lowercase slug. Hyphens may sit only between
+// alphanumeric parts. Length is checked separately.
+var customPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+// Custom reports whether code is already a normalized custom slug:
+// 2 to 32 characters, matching ^[a-z0-9]+(?:-[a-z0-9]+)*$.
+func Custom(code string) bool {
+	if len(code) < 2 || len(code) > 32 {
+		return false
+	}
+	return customPattern.MatchString(code)
+}
+
+// NormalizeCustom trims space and lowercases raw.
+// ok is false when the result is not Custom.
+func NormalizeCustom(raw string) (string, bool) {
+	code := strings.ToLower(strings.TrimSpace(raw))
+	if !Custom(code) {
+		return "", false
+	}
+	return code, true
+}
+
+// Accept reports whether code can be addressed as a short link.
+// A random code must match Valid. A custom slug may use either case.
+func Accept(code string) bool {
+	if Valid(code) {
+		return true
+	}
+	return Custom(strings.ToLower(code))
 }
 
 // New reads Length characters from r. Each character is chosen uniformly

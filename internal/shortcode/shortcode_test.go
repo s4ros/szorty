@@ -5,8 +5,56 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 )
+
+func TestCustomNormalizeAndAccept(t *testing.T) {
+	good := []string{"ab", "amazon", "a1", "moj-link", "a-b-c"}
+	for _, code := range good {
+		if !Custom(code) {
+			t.Fatalf("Custom(%q) = false", code)
+		}
+		got, ok := NormalizeCustom("  " + strings.ToUpper(code) + "  ")
+		if !ok || got != code {
+			t.Fatalf("NormalizeCustom uppercase %q = %q, %v", code, got, ok)
+		}
+		if !Accept(code) || !Accept(strings.ToUpper(code)) {
+			t.Fatalf("Accept missed %q", code)
+		}
+	}
+
+	bad := []string{"", "a", "A", "amazon-", "-amazon", "moj--link", "abc.def", "abc_def", "abc/def", "abc def", "żółć"}
+	for _, code := range bad {
+		if Custom(code) {
+			t.Fatalf("Custom(%q) = true", code)
+		}
+		if _, ok := NormalizeCustom(code); ok {
+			t.Fatalf("NormalizeCustom(%q) accepted", code)
+		}
+	}
+	if _, ok := NormalizeCustom("   "); ok {
+		t.Fatal("whitespace-only name was accepted")
+	}
+	tooLong := strings.Repeat("a", 33)
+	if Custom(tooLong) {
+		t.Fatal("33-character slug was accepted")
+	}
+	exact32 := strings.Repeat("b", 32)
+	if !Custom(exact32) {
+		t.Fatal("32-character slug was rejected")
+	}
+
+	if !Accept("9AZa0z0") {
+		t.Fatal("random code was rejected")
+	}
+	if !Accept("9AZa0z") {
+		t.Fatal("mixed-case custom slug was rejected")
+	}
+	if Accept("abc.def") || Accept("a") {
+		t.Fatal("Accept allowed a non-code")
+	}
+}
 
 func TestValid(t *testing.T) {
 	tests := []struct {
