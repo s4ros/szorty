@@ -252,9 +252,8 @@ func TestHealthAndNonCodePaths(t *testing.T) {
 		t.Fatalf("health body = %q", health.Body.String())
 	}
 
-	// Neighbors of /health, and other single segments that are not 7 base62
-	// characters, are unknown pages and are not looked up as short codes.
-	for _, path := range []string{"/healt", "/health/", "/health.", "/HEALTH", "/abcdef", "/abcdefgh", "/abc-def", "/links"} {
+	// Reserved names and paths that are not a slug stay unknown pages.
+	for _, path := range []string{"/health/", "/health.", "/HEALTH", "/links", "/a", "/amazon-"} {
 		rec := get(f.h(), path)
 		status(t, rec, http.StatusNotFound)
 		assertHTML(t, rec)
@@ -263,11 +262,56 @@ func TestHealthAndNonCodePaths(t *testing.T) {
 		mustNotContain(t, body, wantDead)
 	}
 
+	// A custom-shaped path is a short-code lookup. A missing row is the dead page.
+	for _, path := range []string{"/healt", "/abcdef", "/abcdefgh", "/abc-def", "/amazon"} {
+		rec := get(f.h(), path)
+		status(t, rec, http.StatusNotFound)
+		assertHTML(t, rec)
+		body := rec.Body.String()
+		mustContain(t, body, wantDead)
+		mustNotContain(t, body, wantUnknown)
+	}
+
 	// Seven base62 characters are a code lookup, even next to /health.
 	missing := get(f.h(), "/healthy")
 	status(t, missing, http.StatusNotFound)
 	mustContain(t, missing.Body.String(), wantDead)
 	mustNotContain(t, missing.Body.String(), wantUnknown)
+}
+
+func TestCustomSlugResolvesAndKeepsPermanent(t *testing.T) {
+	f := newFixture(t)
+	old := f.clk.Now().Add(-100 * 24 * time.Hour)
+	if _, err := f.st.CreateChosen(context.Background(), "user-sub", "user@example.com", "https://example.com/a", "amazon", true, old); err != nil {
+		t.Fatal(err)
+	}
+	rec := get(f.h(), "/Amazon")
+	status(t, rec, http.StatusFound)
+	if got := rec.Header().Get("Location"); got != "https://example.com/a" {
+		t.Fatalf("location = %q", got)
+	}
+	if !f.has(t, "amazon") {
+		t.Fatal("permanent slug was deleted on resolve")
+	}
+
+	ordinary := f.mustCreate(t, "user-sub", "user@example.com", "https://example.com/old", old)
+	got := get(f.h(), "/"+ordinary)
+	status(t, got, http.StatusNotFound)
+	mustContain(t, got.Body.String(), wantDead)
+	if f.has(t, ordinary) {
+		t.Fatal("expired ordinary row was kept")
+	}
+}
+
+func TestCustomShapedRoutesAreReserved(t *testing.T) {
+	for _, rt := range routes {
+		rest := strings.TrimPrefix(rt.path, "/")
+		seg, _, _ := strings.Cut(rest, "/")
+		lower := strings.ToLower(seg)
+		if shortcode.Custom(lower) && !reservedCode(lower) {
+			t.Errorf("route segment %q is a custom slug and is not reserved", seg)
+		}
+	}
 }
 
 func TestRegisteredRoutesAreNotCodes(t *testing.T) {

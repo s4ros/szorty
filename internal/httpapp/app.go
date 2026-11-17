@@ -157,7 +157,7 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if r.Method == http.MethodGet {
-		if code, ok := oneSegment(r.URL.Path); ok && shortcode.Valid(code) {
+		if code, ok := oneSegment(r.URL.Path); ok && codeLooksUp(code) {
 			a.resolve(w, r, code)
 			return
 		}
@@ -169,6 +169,29 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.unknown(w, r)
+}
+
+// reservedCode reports whether code is the first segment of a registered route.
+// code is compared exactly, so callers pass the lowercase slug.
+func reservedCode(code string) bool {
+	for _, rt := range routes {
+		rest := strings.TrimPrefix(rt.path, "/")
+		seg, _, _ := strings.Cut(rest, "/")
+		if seg != "" && seg == code {
+			return true
+		}
+	}
+	return false
+}
+
+// codeLooksUp reports whether a single path segment should be resolved as a short link.
+// Registered routes are matched before this is called.
+func codeLooksUp(code string) bool {
+	if shortcode.Valid(code) {
+		return true
+	}
+	lower := strings.ToLower(code)
+	return shortcode.Custom(lower) && !reservedCode(lower)
 }
 
 func oauthConfig(cfg config.Config) *oauth2.Config {
