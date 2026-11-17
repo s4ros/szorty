@@ -63,11 +63,11 @@ var ErrBadCode = errors.New("bad code")
 type ResolveResult int
 
 const (
-	// ResolveGone means the code is missing, or it was expired and deleted.
+	// ResolveGone means the code is missing, or an ordinary row was expired and deleted.
 	ResolveGone ResolveResult = iota
-	// ResolveLive means the row is inside retention and the target passed the URL check.
+	// ResolveLive means the row is permanent or inside retention, and the target passed urlcheck.Validate.
 	ResolveLive
-	// ResolveBlocked means the row is inside retention but the target failed urlcheck.Validate.
+	// ResolveBlocked means the row is permanent or inside retention, but the target failed urlcheck.Validate.
 	// The row is kept.
 	ResolveBlocked
 )
@@ -277,6 +277,29 @@ func primaryKeyTaken(err error) bool {
 	return strings.Contains(err.Error(), "UNIQUE constraint failed: links.code")
 }
 
+// lookupCode returns the stored primary key.
+// It tries code exactly, then the lowercase custom slug when that row is absent.
+// A mixed-case random code is not matched through its lowercase spelling.
+func lookupCode(ctx context.Context, tx *sql.Tx, code string) (string, error) {
+	var stored string
+	err := tx.QueryRowContext(ctx, `SELECT code FROM links WHERE code = ?`, code).Scan(&stored)
+	if err == nil {
+		return stored, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	lower := strings.ToLower(code)
+	if lower == code || !shortcode.Custom(lower) {
+		return "", sql.ErrNoRows
+	}
+	err = tx.QueryRowContext(ctx, `SELECT code FROM links WHERE code = ?`, lower).Scan(&stored)
+	if err != nil {
+		return "", err
+	}
+	return stored, nil
+}
+
 // Resolve returns the stored target and whether the code is live, blocked, or gone.
 // An expired row is deleted in this call.
 func (s *Store) Resolve(ctx context.Context, code string, now time.Time) (string, ResolveResult, error) {
@@ -286,13 +309,19 @@ func (s *Store) Resolve(ctx context.Context, code string, now time.Time) (string
 	}
 	defer tx.Rollback()
 
-	var target string
-	var created int64
-	err = tx.QueryRowContext(ctx, `
-		SELECT target_url, created_at FROM links WHERE code = ?`, code).Scan(&target, &created)
+	stored, err := lookupCode(ctx, tx, code)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ResolveGone, nil
 	}
+	if err != nil {
+		return "", ResolveGone, err
+	}
+
+	var target string
+	var created int64
+	var permanent int
+	err = tx.QueryRowContext(ctx, `
+		SELECT target_url, created_at, permanent FROM links WHERE code = ?`, stored).Scan(&target, &created, &permanent)
 	if err != nil {
 		return "", ResolveGone, err
 	}
@@ -302,8 +331,8 @@ func (s *Store) Resolve(ctx context.Context, code string, now time.Time) (string
 		SELECT retention_days FROM settings WHERE id = 1`).Scan(&days); err != nil {
 		return "", ResolveGone, err
 	}
-	if created+int64(days)*daySeconds < now.Unix() {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM links WHERE code = ?`, code); err != nil {
+	if permanent == 0 && created+int64(days)*daySeconds < now.Unix() {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM links WHERE code = ?`, stored); err != nil {
 			return "", ResolveGone, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -375,18 +404,22 @@ func (s *Store) Delete(ctx context.Context, code, actorSub string, owner bool) (
 	}
 	defer tx.Rollback()
 
-	var author string
-	err = tx.QueryRowContext(ctx, `SELECT author_sub FROM links WHERE code = ?`, code).Scan(&author)
+	stored, err := lookupCode(ctx, tx, code)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, false, nil
 	}
 	if err != nil {
 		return false, false, err
 	}
+	var author string
+	err = tx.QueryRowContext(ctx, `SELECT author_sub FROM links WHERE code = ?`, stored).Scan(&author)
+	if err != nil {
+		return false, false, err
+	}
 	if !owner && author != actorSub {
 		return true, false, nil
 	}
-	res, err := tx.ExecContext(ctx, `DELETE FROM links WHERE code = ?`, code)
+	res, err := tx.ExecContext(ctx, `DELETE FROM links WHERE code = ?`, stored)
 	if err != nil {
 		return false, false, err
 	}
@@ -444,7 +477,7 @@ func (s *Store) SaveSettings(ctx context.Context, days, limit int, now time.Time
 	}
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM links
-		WHERE created_at + ? < ?`, int64(days)*daySeconds, now.Unix()); err != nil {
+		WHERE permanent = 0 AND created_at + ? < ?`, int64(days)*daySeconds, now.Unix()); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -454,9 +487,10 @@ func (s *Store) SaveSettings(ctx context.Context, days, limit int, now time.Time
 func (s *Store) Sweep(ctx context.Context, now time.Time) (int, error) {
 	res, err := s.db.ExecContext(ctx, `
 		DELETE FROM links
-		WHERE created_at + (
-			SELECT retention_days FROM settings WHERE id = 1
-		) * ? < ?`, daySeconds, now.Unix())
+		WHERE permanent = 0
+		  AND created_at + (
+		    SELECT retention_days FROM settings WHERE id = 1
+		  ) * ? < ?`, daySeconds, now.Unix())
 	if err != nil {
 		return 0, err
 	}

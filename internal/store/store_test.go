@@ -784,3 +784,105 @@ func TestCreateChosenPermanentAndTaken(t *testing.T) {
 		t.Fatalf("random link = %+v, %v", got, err)
 	}
 }
+
+func TestPermanentSurvivesExpiry(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+	old := now.Add(-100 * day)
+
+	kept, err := s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/kept", "amazon", true, old)
+	if err != nil {
+		t.Fatalf("permanent: %v", err)
+	}
+	s.rand = codeReader("expired")
+	dropped, err := s.Create(ctx, "sub", "a@example.com", "https://example.com/old", old)
+	if err != nil {
+		t.Fatalf("ordinary: %v", err)
+	}
+	blocked, err := s.CreateChosen(ctx, "sub", "a@example.com", "http://127.0.0.1/secret", "blocked-keep", true, old)
+	if err != nil {
+		t.Fatalf("blocked permanent: %v", err)
+	}
+
+	target, result, err := s.Resolve(ctx, "Amazon", now)
+	if err != nil || result != ResolveLive || target != "https://example.com/kept" {
+		t.Fatalf("Amazon Resolve = %q, %v, %v", target, result, err)
+	}
+	target, result, err = s.Resolve(ctx, kept, now)
+	if err != nil || result != ResolveLive || target != "https://example.com/kept" {
+		t.Fatalf("exact Resolve = %q, %v, %v", target, result, err)
+	}
+	if _, result, err = s.Resolve(ctx, dropped, now); err != nil || result != ResolveGone {
+		t.Fatalf("ordinary Resolve = %v, %v", result, err)
+	}
+	target, result, err = s.Resolve(ctx, "Blocked-Keep", now)
+	if err != nil || result != ResolveBlocked || target != "http://127.0.0.1/secret" {
+		t.Fatalf("blocked Resolve = %q, %v, %v", target, result, err)
+	}
+
+	s.rand = codeReader("sweep02")
+	alsoOld, err := s.Create(ctx, "sub", "a@example.com", "https://example.com/2", old)
+	if err != nil {
+		t.Fatalf("sweep row: %v", err)
+	}
+	n, err := s.Sweep(ctx, now)
+	if err != nil || n != 1 {
+		t.Fatalf("Sweep = %d, %v, want 1", n, err)
+	}
+	if _, result, err = s.Resolve(ctx, alsoOld, now); err != nil || result != ResolveGone {
+		t.Fatalf("swept Resolve = %v, %v", result, err)
+	}
+	if _, result, err = s.Resolve(ctx, kept, now); err != nil || result != ResolveLive {
+		t.Fatalf("permanent after sweep = %v, %v", result, err)
+	}
+
+	if err := s.SaveSettings(ctx, 1, 30, now); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+	if _, result, err = s.Resolve(ctx, kept, now); err != nil || result != ResolveLive {
+		t.Fatalf("permanent after shorter retention = %v, %v", result, err)
+	}
+	if _, result, err = s.Resolve(ctx, blocked, now); err != nil || result != ResolveBlocked {
+		t.Fatalf("blocked after shorter retention = %v, %v", result, err)
+	}
+}
+
+func TestLookupDoesNotFoldRandomCase(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	s.rand = codeReader("Abcdefg")
+	if _, err := s.Create(ctx, "sub", "a@example.com", "https://example.com/r", now); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	_, result, err := s.Resolve(ctx, "abcdefg", now)
+	if err != nil || result != ResolveGone {
+		t.Fatalf("lowercase random Resolve = %v, %v", result, err)
+	}
+	target, result, err := s.Resolve(ctx, "Abcdefg", now)
+	if err != nil || result != ResolveLive || target != "https://example.com/r" {
+		t.Fatalf("exact random Resolve = %q, %v, %v", target, result, err)
+	}
+
+	found, deleted, err := s.Delete(ctx, "AMAZON", "sub", false)
+	if err != nil || found || deleted {
+		t.Fatalf("missing Delete = %v, %v, %v", found, deleted, err)
+	}
+	kept, err := s.CreateChosen(ctx, "sub", "a@example.com", "https://example.com/a", "amazon", false, now)
+	if err != nil {
+		t.Fatalf("CreateChosen: %v", err)
+	}
+	found, deleted, err = s.Delete(ctx, "Amazon", "bob", false)
+	if err != nil || !found || deleted {
+		t.Fatalf("foreign Delete = %v, %v, %v", found, deleted, err)
+	}
+	found, deleted, err = s.Delete(ctx, "Amazon", "sub", false)
+	if err != nil || !found || !deleted {
+		t.Fatalf("author Delete = %v, %v, %v", found, deleted, err)
+	}
+	if _, result, err = s.Resolve(ctx, kept, now); err != nil || result != ResolveGone {
+		t.Fatalf("after delete = %v, %v", result, err)
+	}
+}
