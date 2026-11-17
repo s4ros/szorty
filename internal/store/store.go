@@ -21,7 +21,7 @@ import (
 var schemaFS embed.FS
 
 const (
-	schemaVersion            = "1"
+	schemaVersion            = "2"
 	daySeconds               = 86400
 	hourSeconds              = 3600
 	createTries              = 5
@@ -39,6 +39,7 @@ type Link struct {
 	AuthorSub   string
 	AuthorEmail string
 	CreatedAt   time.Time // UTC
+	Permanent   bool
 }
 
 type Settings struct {
@@ -103,21 +104,39 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	err := db.QueryRowContext(ctx, `
 		SELECT name FROM sqlite_master
 		WHERE type = 'table' AND name = 'schema_migrations'`).Scan(&name)
-	if err == nil {
-		var n int
-		if err := db.QueryRowContext(ctx, `
-			SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, schemaVersion).Scan(&n); err != nil {
-			return err
-		}
-		if n == 0 {
-			return fmt.Errorf("schema version %s is not applied", schemaVersion)
-		}
-		return nil
+	if errors.Is(err, sql.ErrNoRows) {
+		return applyFresh(ctx, db)
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
 		return err
 	}
+	has2, err := hasSchemaVersion(ctx, db, "2")
+	if err != nil {
+		return err
+	}
+	if has2 {
+		return nil
+	}
+	has1, err := hasSchemaVersion(ctx, db, "1")
+	if err != nil {
+		return err
+	}
+	if !has1 {
+		return fmt.Errorf("schema version %s is not applied", schemaVersion)
+	}
+	return applyPermanentColumn(ctx, db)
+}
 
+func hasSchemaVersion(ctx context.Context, db *sql.DB, version string) (bool, error) {
+	var n int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, version).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func applyFresh(ctx context.Context, db *sql.DB) error {
 	schema, err := schemaFS.ReadFile("schema.sql")
 	if err != nil {
 		return err
@@ -129,6 +148,23 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, string(schema)); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO schema_migrations (version) VALUES (?)`, schemaVersion); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func applyPermanentColumn(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		ALTER TABLE links ADD COLUMN permanent INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("add permanent: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO schema_migrations (version) VALUES (?)`, schemaVersion); err != nil {
@@ -248,7 +284,7 @@ func (s *Store) Resolve(ctx context.Context, code string, now time.Time) (string
 // ListByAuthor returns this author's rows, newest first.
 func (s *Store) ListByAuthor(ctx context.Context, sub string, limit, offset int) ([]Link, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT code, target_url, author_sub, author_email, created_at
+		SELECT code, target_url, author_sub, author_email, created_at, permanent
 		FROM links
 		WHERE author_sub = ?
 		ORDER BY created_at DESC, code DESC
@@ -263,7 +299,7 @@ func (s *Store) ListByAuthor(ctx context.Context, sub string, limit, offset int)
 // ListAll returns every row still in the table, newest first.
 func (s *Store) ListAll(ctx context.Context, limit, offset int) ([]Link, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT code, target_url, author_sub, author_email, created_at
+		SELECT code, target_url, author_sub, author_email, created_at, permanent
 		FROM links
 		ORDER BY created_at DESC, code DESC
 		LIMIT ? OFFSET ?`, limit, offset)
@@ -279,10 +315,12 @@ func scanLinks(rows *sql.Rows) ([]Link, error) {
 	for rows.Next() {
 		var link Link
 		var created int64
-		if err := rows.Scan(&link.Code, &link.TargetURL, &link.AuthorSub, &link.AuthorEmail, &created); err != nil {
+		var permanent int
+		if err := rows.Scan(&link.Code, &link.TargetURL, &link.AuthorSub, &link.AuthorEmail, &created, &permanent); err != nil {
 			return nil, err
 		}
 		link.CreatedAt = time.Unix(created, 0).UTC()
+		link.Permanent = permanent != 0
 		out = append(out, link)
 	}
 	if err := rows.Err(); err != nil {

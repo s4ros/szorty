@@ -7,7 +7,8 @@ CREATE TABLE links (
   target_url TEXT NOT NULL,
   author_sub TEXT NOT NULL,
   author_email TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  permanent INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX links_author_created ON links (author_sub, created_at);

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strconv"
@@ -91,8 +92,8 @@ func TestOpenSeedsSettingsWALAndMigration(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT version FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("schema_migrations: %v", err)
 	}
-	if version != "1" {
-		t.Fatalf("schema version = %q, want 1", version)
+	if version != "2" {
+		t.Fatalf("schema version = %q, want 2", version)
 	}
 	var indexes int
 	if err := s.db.QueryRow(`
@@ -102,6 +103,79 @@ func TestOpenSeedsSettingsWALAndMigration(t *testing.T) {
 	}
 	if indexes != 2 {
 		t.Fatalf("named link indexes = %d, want 2", indexes)
+	}
+}
+
+func TestUpgradeFromVersion1AddsPermanent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "szorty.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("Open raw: %v", err)
+	}
+	const v1 = `
+CREATE TABLE schema_migrations (
+  version TEXT PRIMARY KEY
+);
+CREATE TABLE links (
+  code TEXT PRIMARY KEY,
+  target_url TEXT NOT NULL,
+  author_sub TEXT NOT NULL,
+  author_email TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX links_author_created ON links (author_sub, created_at);
+CREATE INDEX links_created ON links (created_at);
+CREATE TABLE settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  retention_days INTEGER NOT NULL,
+  max_creates_per_hour INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);`
+	if _, err := db.Exec(v1); err != nil {
+		t.Fatalf("v1 schema: %v", err)
+	}
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC).Unix()
+	if _, err := db.Exec(`INSERT INTO schema_migrations (version) VALUES ('1')`); err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO settings (id, retention_days, max_creates_per_hour, updated_at) VALUES (1, 90, 30, ?)`, now); err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO links (code, target_url, author_sub, author_email, created_at) VALUES ('keptCod', 'https://example.com/kept', 'sub', 'a@example.com', ?)`, now); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close raw: %v", err)
+	}
+
+	s := openAt(t, path)
+	ctx := context.Background()
+	var v1n, v2n, cols int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = '1'`).Scan(&v1n); err != nil {
+		t.Fatalf("version 1: %v", err)
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = '2'`).Scan(&v2n); err != nil {
+		t.Fatalf("version 2: %v", err)
+	}
+	if v1n != 1 || v2n != 1 {
+		t.Fatalf("versions v1=%d v2=%d, want 1 and 1", v1n, v2n)
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('links') WHERE name = 'permanent'`).Scan(&cols); err != nil {
+		t.Fatalf("table info: %v", err)
+	}
+	if cols != 1 {
+		t.Fatalf("permanent column count = %d, want 1", cols)
+	}
+	links, err := s.ListByAuthor(ctx, "sub", 10, 0)
+	if err != nil {
+		t.Fatalf("ListByAuthor: %v", err)
+	}
+	if len(links) != 1 || links[0].Code != "keptCod" || links[0].Permanent {
+		t.Fatalf("upgraded link = %+v, want keptCod and not permanent", links)
+	}
+	target, result, err := s.Resolve(ctx, "keptCod", time.Unix(now, 0).UTC())
+	if err != nil || result != ResolveLive || target != "https://example.com/kept" {
+		t.Fatalf("Resolve = %q, %v, %v", target, result, err)
 	}
 }
 
